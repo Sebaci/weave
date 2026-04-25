@@ -3,10 +3,10 @@ import { parseModule } from "../parser/parse.ts";
 import { checkModule } from "../typechecker/check.ts";
 import { buildSpanMap } from "../surface/span-map.ts";
 
-const [,, command, filePath] = process.argv;
+const [,, command, filePath, ...rest] = process.argv;
 
-if (command !== "check" || !filePath) {
-  console.error("Usage: weave check <file>");
+if (command !== "check" || !filePath || rest.length > 0) {
+  console.error("Usage: npm run cli -- check <file>");
   process.exit(1);
 }
 
