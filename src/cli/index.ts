@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parseModule } from "../parser/parse.ts";
 import { checkModule } from "../typechecker/check.ts";
+import { buildSpanMap } from "../surface/span-map.ts";
 
 const [,, command, filePath] = process.argv;
 
@@ -21,13 +22,19 @@ if (!parseResult.ok) {
   process.exit(1);
 }
 const mod = parseResult.value;
+const spanMap = buildSpanMap(mod);
 
 // --- Typecheck ---
-// Note: type errors carry sourceId but no span yet — location added in a later step.
 const checkResult = checkModule(mod);
 if (!checkResult.ok) {
   for (const err of checkResult.errors) {
-    console.error(`${filePath}: error: ${err.message}`);
+    const span = err.span ?? spanMap.get(err.sourceId);
+    if (span) {
+      const { line, column } = span.start;
+      console.error(`${filePath}:${line}:${column}: error: ${err.message}`);
+    } else {
+      console.error(`${filePath}: error: ${err.message}`);
+    }
   }
   process.exit(1);
 }
