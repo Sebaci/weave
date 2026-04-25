@@ -1,0 +1,4 @@
+module Examples.ParseError
+
+def broken : Int -> Int =
+  >>>

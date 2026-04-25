@@ -1,0 +1,4 @@
+module Examples.Bad
+
+def broken : Int -> Int =
+  unknownName
