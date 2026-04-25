@@ -4,9 +4,8 @@
  */
 
 import type { Graph, Node, Port, Wire, PortId } from "./ir.ts";
-import { effectJoin } from "../types/check.ts";
-import { isConcrete } from "../types/check.ts";
-import type { ConcreteEffect } from "../types/type.ts";
+import { effectJoin, isConcrete, typeEq } from "../types/check.ts";
+import type { ConcreteEffect, Type } from "../types/type.ts";
 
 export type ValidationError = { rule: string; message: string };
 export type ValidationResult =
@@ -136,17 +135,32 @@ function checkCataSubstitution(graph: Graph, errors: ValidationError[]) {
   for (const node of graph.nodes) {
     if (node.kind !== "cata") continue;
     for (const branch of node.algebra) {
-      // Check that the branch's inPort type is not equal to the ADT type.
-      // Full structural check would require type equality with substitution;
-      // for v1 we verify the branch inPort type does not contain the raw ADT type
-      // by checking it's concrete and distinct from node.adtTy.
       if (!isConcrete(branch.graph.inPort.ty)) {
         errors.push({
           rule: "IR-6",
           message: `CataNode algebra branch '${branch.tag}': inPort type is not concrete`,
         });
       }
+      // IR-6: carrier substitution must have been applied — adtTy must not appear
+      // structurally in the branch graph's inPort type.
+      if (typeStructurallyContains(branch.graph.inPort.ty, node.adtTy)) {
+        errors.push({
+          rule: "IR-6",
+          message: `CataNode algebra branch '${branch.tag}': inPort type still contains adtTy — carrier substitution was not applied`,
+        });
+      }
     }
+  }
+}
+
+/** Returns true if `target` appears anywhere as a sub-type of `ty`. */
+function typeStructurallyContains(ty: Type, target: Type): boolean {
+  if (typeEq(ty, target)) return true;
+  switch (ty.tag) {
+    case "Named":   return ty.args.some((a) => typeStructurallyContains(a, target));
+    case "Record":  return ty.fields.some((f) => typeStructurallyContains(f.ty, target));
+    case "Arrow":   return typeStructurallyContains(ty.from, target) || typeStructurallyContains(ty.to, target);
+    default:        return false;
   }
 }
 

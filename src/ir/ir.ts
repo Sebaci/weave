@@ -122,6 +122,8 @@ export type CaseNode = NodeBase & {
   kind:      "case";
   input:     Port;
   output:    Port;
+  variantTy: Type;   // Σ — the closed variant type being eliminated
+  outTy:     Type;   // A — the shared result type of all branches
   branches:  { tag: string; graph: Graph }[];
 };
 
@@ -137,7 +139,7 @@ export type CataNode = NodeBase & {
   output:    Port;         // type: A
   adtTy:     Type;         // μF
   carrierTy: Type;         // A
-  algebra:   { tag: string; graph: Graph }[];
+  algebra:   { tag: string; rawPayloadTy: Type; graph: Graph }[];
 };
 
 /** Unit-sourced literal constant 1 -> T. */

@@ -183,11 +183,14 @@ export type TypedBuildField  = { name: string; expr: TypedExpr };
 export type TypedFanoutField = { name: string; expr: TypedExpr };
 
 export type TypedBranch = {
-  ctor:      string;
-  /** For case: the constructor's raw payload type.
-   *  For fold: Pi[carrierTy/adtTy] — the substituted payload type. */
-  payloadTy: Type;
-  handler:   TypedHandler;
+  ctor:         string;
+  /** Always the raw constructor payload type (before any carrier substitution).
+   *  For case, same as payloadTy. For fold, has adtTy at recursive positions. */
+  rawPayloadTy: Type;
+  /** For case: same as rawPayloadTy.
+   *  For fold: Pi[carrierTy/adtTy] — adtTy replaced by the carrier type. */
+  payloadTy:    Type;
+  handler:      TypedHandler;
 };
 
 export type TypedHandler =

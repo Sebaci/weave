@@ -420,10 +420,16 @@ function resolveConcreteEffect(eff: SurfaceEffect, sourceId: SourceNodeId): Type
 
 function resolveEffLevelFinal(eff: EffectLevel, sourceId: SourceNodeId): TypeResult<ConcreteEffect> {
   if (typeof eff === "string") return ok(eff);
-  // EffVar in a def signature is fine — but at the point of checking the body
-  // we need it resolved. For now, treat unresolved EffVar as "pure" (will be
-  // instantiated at call sites). This is only reached for polymorphic def bodies.
-  return ok("pure");
+  // EffVar at this point means an effect variable in a def param or def signature
+  // that was never resolved through unification. Silently defaulting to "pure" is
+  // wrong: a param declared `f: a -> b ! ε` would be recorded as `f: a -> b ! pure`,
+  // causing the schema's effect to be misreported and breaking the parallel-safe
+  // semantic contract (spec §4.4). In v1, effect polymorphism on def params is not
+  // supported — require a concrete effect annotation.
+  return typeError(
+    `effect variable '${eff.name}' is not supported in v1 — use a concrete effect ('pure', 'parallel-safe', or 'sequential')`,
+    sourceId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -688,10 +694,10 @@ function checkBuild(
   fields: BuildField[], inputTy: Type, env: CheckEnv, sourceId: SourceNodeId,
 ): TypeResult<TypedStep> {
   if (fields.length === 0) {
-    // build {} = unit value
+    // build {} = unit value; input is the actual contextual type (may be non-unit)
     return ok(makeStep(
       { tag: "Build", fields: [] },
-      { input: { tag: "Unit" }, output: { tag: "Unit" }, eff: "pure" },
+      { input: inputTy, output: { tag: "Unit" }, eff: "pure" },
       sourceId,
     ));
   }
@@ -730,7 +736,7 @@ function checkBuild(
 
   return ok(makeStep(
     { tag: "Build", fields: fieldsR.value },
-    { input: { tag: "Unit" }, output: outputTy, eff },
+    { input: inputTy, output: outputTy, eff },
     sourceId,
   ));
 }
@@ -746,7 +752,8 @@ function collectLocalNames(expr: Expr, locals: LocalEnv): string[] {
     if (step.tag === "Over")    visitStep(step.transform);
     if (step.tag === "Case" || step.tag === "Fold")
       step.branches.forEach((b) => visitHandler(b.handler));
-    if (step.tag === "Infix")   { visitStep(step.left); visitStep(step.right); }
+    if (step.tag === "Infix")      { visitStep(step.left); visitStep(step.right); }
+    if (step.tag === "SchemaInst") step.args.forEach((a) => visitExpr(a.expr));
   };
   const visitExpr = (e: Expr) => e.steps.forEach(visitStep);
   const visitHandler = (h: Handler) => {
@@ -839,8 +846,15 @@ function checkCaseOrFold(
   if (!variantInfo.ok) return variantInfo;
   const { info, typeArgs } = variantInfo.value;
 
-  // Determine if this is case or fold
-  const isFold = hint === "fold" || info.isRecursive;
+  // Determine if this is case or fold.
+  // fold requires a recursive ADT; case is a plain coproduct eliminator on any variant.
+  if (hint === "fold" && !info.isRecursive) {
+    return typeError(
+      `fold: input type '${showType(inputTy)}' is not a recursive ADT`,
+      sourceId,
+    );
+  }
+  const isFold = hint === "fold";
 
   // Validate exhaustiveness
   const ctorNames = new Set(
@@ -914,9 +928,10 @@ function checkCaseOrFold(
     }
 
     typedBranches.push({
-      ctor: branch.ctor,
-      payloadTy: branchPayloadTy,
-      handler: typedHandler,
+      ctor:         branch.ctor,
+      rawPayloadTy: instantiatedPayload ?? { tag: "Unit" },
+      payloadTy:    branchPayloadTy,
+      handler:      typedHandler,
     });
   }
 
@@ -928,9 +943,10 @@ function checkCaseOrFold(
   // Apply the final substitution to all branch payload types and handler bodies.
   // Fold branches contain TyVar(carrierVar) in payload types until subst is resolved.
   const finalBranches = typedBranches.map((b) => ({
-    ctor:      b.ctor,
-    payloadTy: applySubst(b.payloadTy, subst, effSubst),
-    handler:   substTypedHandler(b.handler, subst, effSubst),
+    ctor:         b.ctor,
+    rawPayloadTy: b.rawPayloadTy,  // concrete: instantiated from typeArgs, no carrier TyVar
+    payloadTy:    applySubst(b.payloadTy, subst, effSubst),
+    handler:      substTypedHandler(b.handler, subst, effSubst),
   }));
 
   if (isFold) {
@@ -1386,9 +1402,10 @@ function substTypedNode(node: TypedNode, subst: Subst, effSubst: EffSubst): Type
       return {
         tag: "Case",
         branches: node.branches.map((b) => ({
-          ctor:      b.ctor,
-          payloadTy: applySubst(b.payloadTy, subst, effSubst),
-          handler:   substTypedHandler(b.handler, subst, effSubst),
+          ctor:         b.ctor,
+          rawPayloadTy: applySubst(b.rawPayloadTy, subst, effSubst),
+          payloadTy:    applySubst(b.payloadTy, subst, effSubst),
+          handler:      substTypedHandler(b.handler, subst, effSubst),
         })),
       };
     case "Fold":
@@ -1397,9 +1414,10 @@ function substTypedNode(node: TypedNode, subst: Subst, effSubst: EffSubst): Type
         adtTy:     applySubst(node.adtTy,     subst, effSubst),
         carrierTy: applySubst(node.carrierTy, subst, effSubst),
         branches:  node.branches.map((b) => ({
-          ctor:      b.ctor,
-          payloadTy: applySubst(b.payloadTy, subst, effSubst),
-          handler:   substTypedHandler(b.handler, subst, effSubst),
+          ctor:         b.ctor,
+          rawPayloadTy: applySubst(b.rawPayloadTy, subst, effSubst),
+          payloadTy:    applySubst(b.payloadTy, subst, effSubst),
+          handler:      substTypedHandler(b.handler, subst, effSubst),
         })),
       };
     case "Over":

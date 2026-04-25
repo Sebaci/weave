@@ -57,11 +57,11 @@ type ElabContext = {
    */
   locals:     Map<string, PortId[]>;
   /**
-   * Schema parameter ports: param name → PortId.
+   * Schema parameter ports: param name → queue of PortIds (one per use).
    * When elaborating a SchemaInst body, Ref nodes targeting param names
-   * are wired to these ports instead of producing a RefNode.
+   * pop the front element; a DupNode ensures one output per use.
    */
-  paramPorts: Map<string, PortId>;
+  paramPorts: Map<string, PortId[]>;
   /** The current morphism's input port. */
   inputPort:  PortId;
   /** Fully concrete type at inputPort. Required for over/let passthrough expansion. */
@@ -199,10 +199,10 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
     // -----------------------------------------------------------------------
     case "Ref": {
       const { defId } = step.node;
-      // Schema param substitution: if defId is in paramPorts, wire directly.
-      const paramPort = ctx.paramPorts.get(defId);
-      if (paramPort !== undefined) {
-        return paramPort;
+      // Schema param substitution: if defId is in paramPorts, pop next port from queue.
+      const paramQueue = ctx.paramPorts.get(defId);
+      if (paramQueue !== undefined && paramQueue.length > 0) {
+        return paramQueue.shift()!;
       }
       const outPort = mkPort(step.morphTy.output);
       const inPort  = mkPort(step.morphTy.input);
@@ -517,6 +517,8 @@ function elabCase(
     kind: "case",
     id: freshNodeId(), effect: eff,
     input: inPort, output: outPort,
+    variantTy: step.morphTy.input,
+    outTy:     step.morphTy.output,
     branches,
     provenance: [prov(srcId)],
   };
@@ -541,8 +543,9 @@ function elabFold(
   builder.wire(inputPortId, inPort.id);
 
   const algebra = foldNode.branches.map((b) => ({
-    tag:   b.ctor,
-    graph: elabBranchHandler(b, foldNode.carrierTy, ctx, srcId),
+    tag:          b.ctor,
+    rawPayloadTy: b.rawPayloadTy,
+    graph:        elabBranchHandler(b, foldNode.carrierTy, ctx, srcId),
   }));
 
   let eff: ConcreteEffect = "pure";
@@ -882,11 +885,13 @@ function elabSchemaInst(
   // Apply tySubst/effSubst to the def's TypedExpr body.
   const substBody = substTypedExpr(def.body, tySubst, effSubst);
 
-  // Elaborate each argument and collect its output port.
-  const newParamPorts = new Map<string, PortId>(ctx.paramPorts);
+  // Elaborate each argument and allocate one output port per use in the body.
+  const newParamPorts = new Map<string, PortId[]>(ctx.paramPorts);
   for (const [paramName, argExpr] of argSubst) {
     const argOutPortId = elabExpr(argExpr, inputPortId, ctx);
-    newParamPorts.set(paramName, argOutPortId);
+    const uses = countParamRefUses(substBody, [paramName]).get(paramName) ?? 1;
+    const argOutPort = { id: argOutPortId, ty: argExpr.morphTy.output };
+    newParamPorts.set(paramName, allocateLocalPort(argOutPort, uses, ctx.builder, srcId));
   }
 
   // Elaborate the substituted body with param ports.
@@ -918,10 +923,9 @@ function elabNormI(
   srcId: SourceNodeId,
 ): PortId {
   if (expr.morphTy.input.tag === "Unit" && inputTy.tag !== "Unit") {
-    // Case B: lift unit-sourced expr by inserting DropNode.
+    // Case B: lift unit-sourced expr by inserting DropNode (! : I -> 1).
     const droppedPort = liftUnit(inputPortId, inputTy, ctx.builder, srcId);
-    void droppedPort;
-    return elabExpr(expr, inputPortId, { ...ctx, inputType: { tag: "Unit" } });
+    return elabExpr(expr, droppedPort, { ...ctx, inputType: { tag: "Unit" } });
   }
   return elabExpr(expr, inputPortId, ctx);
 }
@@ -1015,6 +1019,33 @@ function countUsesInTypedExpr(expr: TypedExpr, names: string[]): Map<string, num
     if (h.tag === "Nullary") visitExpr(h.body);
     else visitExpr(h.body);
   };
+  visitExpr(expr);
+  return counts;
+}
+
+/** Count how many times each param name appears as a Ref node in a TypedExpr. */
+function countParamRefUses(expr: TypedExpr, paramNames: string[]): Map<string, number> {
+  const counts = new Map<string, number>(paramNames.map((n) => [n, 0]));
+  const visitStep = (s: TypedStep) => {
+    if (s.node.tag === "Ref" && counts.has(s.node.defId)) {
+      counts.set(s.node.defId, (counts.get(s.node.defId) ?? 0) + 1);
+    }
+    visitNode(s.node);
+  };
+  const visitExpr = (e: TypedExpr) => e.steps.forEach(visitStep);
+  const visitNode = (node: TypedNode) => {
+    switch (node.tag) {
+      case "Build":      node.fields.forEach((f) => visitExpr(f.expr)); break;
+      case "Fanout":     node.fields.forEach((f) => visitExpr(f.expr)); break;
+      case "Case":       node.branches.forEach((b) => visitHandler(b.handler)); break;
+      case "Fold":       node.branches.forEach((b) => visitHandler(b.handler)); break;
+      case "Over":       visitStep(node.transform); break;
+      case "Let":        visitExpr(node.rhs); visitExpr(node.body); break;
+      case "SchemaInst": [...node.argSubst.values()].forEach(visitExpr); break;
+      default: break;
+    }
+  };
+  const visitHandler = (h: TypedHandler) => visitExpr(h.body);
   visitExpr(expr);
   return counts;
 }
@@ -1143,7 +1174,7 @@ function substBranch(
           body:    subE(branch.handler.body),
         };
 
-  return { ctor: branch.ctor, payloadTy: subT(branch.payloadTy), handler };
+  return { ctor: branch.ctor, rawPayloadTy: subT(branch.rawPayloadTy), payloadTy: subT(branch.payloadTy), handler };
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,8 @@ import type { Graph, Node, PortId } from "../ir/ir.ts";
 import type { LiteralValue } from "../ir/ir.ts";
 import type { ElaboratedModule } from "../ir/ir.ts";
 import { type Value, VUnit, vInt, vFloat, vBool, vText } from "./value.ts";
+import { typeEq } from "../types/check.ts";
+import type { Type } from "../types/type.ts";
 
 // ---------------------------------------------------------------------------
 // Builtin morphism implementations
@@ -221,7 +223,7 @@ export function evalGraph(
 
       case "cata": {
         const v = getValue(node.input.id);
-        portValues.set(node.output.id, evalCata(node.algebra, v, defs, effects));
+        portValues.set(node.output.id, evalCata(node.algebra, node.adtTy, v, defs, effects));
         break;
       }
 
@@ -260,31 +262,38 @@ export function evalGraph(
  * The algebra is the set of branch graphs whose input types are Pi[A/μF]:
  * recursive fields already carry the carrier type A, not the raw ADT μF.
  *
- * We detect recursive substructures by checking if a value's variant
- * constructor appears in the algebra's branch set.
+ * Recursion is type-directed: we fold a sub-value only when its position in
+ * the raw payload type equals adtTy (the ADT being folded). This correctly
+ * handles parametric types like List (List Int) where inner and outer lists
+ * share constructor names but are distinct types.
  */
 function evalCata(
-  algebra: { tag: string; graph: Graph }[],
+  algebra: { tag: string; rawPayloadTy: Type; graph: Graph }[],
+  adtTy: Type,
   value: Value,
   defs: Map<string, Graph>,
   effects: EffectHandlers,
 ): Value {
-  const ctorSet = new Set(algebra.map((b) => b.tag));
-
   function fold(v: Value): Value {
     if (v.tag !== "variant") throw new Error(`interpret: cata: expected variant, got ${v.tag}`);
-    const foldedPayload = foldPayload(v.payload);
     const branch = algebra.find((b) => b.tag === v.ctor);
     if (!branch) throw new Error(`interpret: cata: no algebra branch for '${v.ctor}'`);
+    const foldedPayload = foldPayload(v.payload, branch.rawPayloadTy);
     return evalGraph(branch.graph, foldedPayload, defs, effects);
   }
 
-  // Recursively fold any subvalue that is itself an ADT node (its ctor is in the algebra).
-  function foldPayload(v: Value): Value {
-    if (v.tag === "variant" && ctorSet.has(v.ctor)) return fold(v);
-    if (v.tag === "record") {
+  // Recursively fold sub-values at positions whose raw type equals adtTy.
+  function foldPayload(v: Value, rawTy: Type): Value {
+    if (typeEq(rawTy, adtTy)) return fold(v);
+    if (rawTy.tag === "Record" && v.tag === "record") {
       const fields = new Map<string, Value>();
-      for (const [k, fv] of v.fields) fields.set(k, foldPayload(fv));
+      for (const field of rawTy.fields) {
+        const fv = v.fields.get(field.name);
+        if (fv !== undefined) fields.set(field.name, foldPayload(fv, field.ty));
+      }
+      for (const [k, fv] of v.fields) {
+        if (!fields.has(k)) fields.set(k, fv);
+      }
       return { tag: "record", fields };
     }
     return v;

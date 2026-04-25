@@ -184,17 +184,28 @@ An empty `Build([])` step is the surface unit value. It elaborates to
 
 ## 4. Typechecker (decisions recorded as they are made)
 
-### 4.1 Case vs Fold distinction is type-directed
+### 4.1 Case and Fold are keyword-directed, not type-directed — CORRECTED
 
-`Case` and `Fold` share identical surface syntax. The typechecker distinguishes them
-by the input type at the construct site:
-- If the input type resolves to a recursive ADT (`Named` whose declaration includes
-  recursive constructor positions), the construct is treated as `Fold`.
-- Otherwise it is `Case`.
+**Previous (wrong) decision:** the typechecker used `isFold = hint === "fold" || info.isRecursive`,
+forcing any `case` over a recursive ADT to become a catamorphism. This was retracted
+because it directly contradicts the spec.
 
-An explicit type annotation on the pipeline may be required when the input type
-cannot be inferred. This becomes a "cannot determine whether fold or case" type error
-requiring annotation.
+**Correct rule (spec §10–11):**
+
+`case` is a coproduct eliminator on any closed variant `Σ`. Branch payload types
+are always raw (`Pi`). `tail` in a `Cons` branch over `List Int` has type `List Int`.
+
+`fold` is a catamorphism requiring a recursive ADT (`μF`). Branch payload types
+are `Pi[A/μF]` — recursive positions carry the already-folded carrier `A`.
+`tail` in a `Cons` branch over `List Int → Int` has type `Int`.
+
+`fold` on a non-recursive ADT is a type error. `case` on a recursive ADT is
+valid and gives single-level coproduct elimination — the programmer sees raw
+recursive fields, not pre-folded results.
+
+The distinction is enforced by the surface keyword alone. The two constructs
+elaborate to `CaseNode` and `CataNode` respectively; they cannot silently
+swap based on whether the ADT happens to be recursive.
 
 ### 4.2 Fixed v1 builtin infix operator table
 
@@ -444,3 +455,142 @@ and then (a) projects each field to create locals, and (b) passes `rPrime` as
 the body's piped input. Both uses require outgoing wires from `rPrime`. The fix:
 create a DupNode with `tupleInputs.length + 1` outputs — one per projection
 plus one for the body input — so no port has multiple outgoing wires (IR-2).
+
+### 9.8 norm_I Case B must thread the DropNode's output port, not the original input
+
+`elabNormI` Case B fires when a unit-sourced expression is used in a non-unit
+input context (spec §5: `(! >>> m)`). `liftUnit` returns the DropNode's Unit
+output port. That port — not the original `inputPortId` — must be passed to
+`elabExpr`. Passing `inputPortId` instead wires the original non-unit port to
+both the DropNode input and the downstream expression input, which violates IR-2
+(a port may have at most one outgoing wire per consumer).
+
+The previous code had `void droppedPort` followed by `elabExpr(expr, inputPortId, ...)`,
+effectively discarding the DropNode output and creating the IR-2 violation.
+
+### 9.9 checkBuild must record morphTy.input = inputTy, not Unit
+
+`build` is semantically unit-sourced (`1 → T`), but when it appears in a pipeline
+context the typechecker sees the actual contextual input type `inputTy` (which may be
+non-unit). `checkBuild` must record `{ input: inputTy, ... }` in both return sites
+(empty and non-empty), exactly as `checkLiteral` does.
+
+Without this, `elabBuild` calls `liftUnit(inputPortId, step.morphTy.input, ...)` with
+`step.morphTy.input = { tag: "Unit" }`, which hits the early-return no-op in `liftUnit`
+and never emits the required DropNode (`! : I → 1`). The graph's `inPort` becomes
+dangling — no node consumes it — which is an IR structural violation.
+
+`elabBuild` itself does not need to change: the `liftUnit` calls already pass
+`step.morphTy.input`, and now that `morphTy.input` carries the real contextual type,
+the DropNode is emitted correctly whenever needed.
+
+### 9.10 ElabContext.paramPorts is a PortId[] queue, not a single PortId
+
+Schema params are elaborated as arg expressions at the SchemaInst call site. If
+the same param is referenced n times in the def body, each use is a `Ref` node
+that, at elaboration time, must be wired to a distinct output port — otherwise
+n wires leave the same source port, violating IR-2.
+
+Fix: `ElabContext.paramPorts` is `Map<string, PortId[]>` (a queue). For each
+param, `elabSchemaInst` counts how many `Ref` nodes with that `defId` appear in
+the substituted body, calls `allocateLocalPort` to create a DupNode with that
+many outputs, and stores the resulting queue. Each `Ref` lookup via `.shift()`
+consumes one port from the front.
+
+The count is computed by `countParamRefUses` — a mirror of `countUsesInTypedExpr`
+that visits `Ref` nodes by `defId` instead of `LocalRef` nodes by `name`. The
+same recursive structure (Build/Fanout/Case/Fold/Over/Let/SchemaInst) is needed
+because param refs can appear inside nested sub-expressions.
+
+### 9.11 collectLocalNames in checkBuild must recurse into SchemaInst args
+
+`collectLocalNames` detects ambient local references inside `build` field
+expressions (the closedness check). A `SchemaInst` step passes arg expressions
+that may reference locals; without the SchemaInst case, those references slip
+through undetected, allowing closed-form violations to pass the typechecker.
+
+Fix: add `if (step.tag === "SchemaInst") step.args.forEach((a) => visitExpr(a.expr));`
+to the `visitStep` in `collectLocalNames` in `src/typechecker/check.ts`.
+
+### 9.12 TypedBranch carries rawPayloadTy for type-directed fold recursion
+
+`TypedBranch.payloadTy` for fold branches is the POST-substitution payload:
+recursive positions hold the carrier type `A` instead of the ADT type `μF`.
+This is the right input for the branch handler, but the wrong guide for deciding
+which positions to recurse into during evaluation.
+
+Fix: add `rawPayloadTy: Type` to `TypedBranch` — the pre-substitution payload
+(`instantiatedPayload ?? Unit` from `checkCaseOrFold`), where recursive positions
+still hold `adtTy`. This is always concrete (instantiated from the ADT's concrete
+type arguments) so no further substitution is needed when storing it.
+
+The field propagates through all TypedBranch reconstruction sites
+(`checkCaseOrFold`, `substTypedNode` in both `check.ts` and `elab.ts`,
+`substBranch` in `elab.ts`) and into `CataNode.algebra` entries
+(`{ tag, rawPayloadTy, graph }`).
+
+### 9.13 Fold recursion is type-directed, not constructor-set-directed
+
+The previous `evalCata` used `ctorSet.has(v.ctor)` to detect recursive
+sub-values. This is wrong for parametric recursive types: `fold over List (List Int)`
+has `Nil`/`Cons` constructors shared by both the outer list and any inner `List Int`
+values. The inner lists would be incorrectly folded.
+
+Fix: `evalCata` now takes `adtTy: Type` (from `CataNode.adtTy`). `foldPayload`
+is type-directed: it recurses based on the raw payload type structure, folding
+only at positions where `typeEq(rawTy, adtTy)` is true. For record payloads, it
+walks field-by-field using the raw payload type's field list. Non-recursive leaves
+are returned as-is.
+
+### 9.14 IR-6 validation now checks that adtTy is absent from branch inPort types
+
+The previous `checkCataSubstitution` only checked `isConcrete(branch.graph.inPort.ty)`.
+This is too weak — a branch could have a concrete inPort type that still contains
+`adtTy` (if the carrier substitution was not applied).
+
+Fix: add `typeStructurallyContains(branch.graph.inPort.ty, node.adtTy)` check.
+`typeStructurallyContains` uses `typeEq` for leaf comparison and recurses into
+`Named.args`, `Record.fields`, and `Arrow.from`/`to`. A positive result means
+the elaborator failed to substitute the carrier for the ADT at recursive positions.
+
+### 9.15 CaseNode carries variantTy and outTy to match spec
+
+The spec (weave-ir-v1.md §CaseNode) defines `variantTy: Type` and `outTy: Type`
+on `CaseNode`. The implementation previously omitted them. They are redundant with
+`input.ty` and `output.ty` but are required by the spec for structural completeness
+and for tooling that reads the IR directly. `CataNode` had its analogous fields
+(`adtTy`, `carrierTy`) from the start; `CaseNode` now matches. Populated in
+`elabCase` from `step.morphTy.input` and `step.morphTy.output`.
+
+### 9.16 DropNode.output is a necessary extension not in the spec
+
+The spec defines `DropNode` with no output port (`! : I -> 1`, `1` implicit).
+The implementation adds `output: Port` (always `Unit`-typed) for two reasons:
+
+1. Uniform traversal: `nodePorts` and `outputPortIds` iterate all output ports of
+   every node kind. A missing output on DropNode would require a special case.
+
+2. norm_I Case B: the elaboration rule `(! >>> m)` requires threading the Unit
+   value from the DropNode to the next node's input. This is represented as a wire
+   from `droppedPort` (DropNode's output) to the downstream node's input. Without
+   an output port, this wire cannot be expressed.
+
+The spec's DropNode definition is inconsistent with the norm_I elaboration rule.
+The implementation's `output: Port` resolves the inconsistency. For ConstNode and
+TupleNode (which are implicitly unit-sourced and have no explicit input port), the
+DropNode output remains unconnected — this is a structural consequence of those
+nodes not having wirable input ports, not a graph error.
+
+### 9.17 Effect variables in def params are not supported in v1
+
+`resolveEffLevelFinal` previously silently converted any unresolved `EffVar`
+to `"pure"`. This meant a param declared `f: a -> b ! ε` would be stored as
+`f: a -> b ! pure`. Effect substitution at the call site never updated the
+stored `eff: "pure"` on the param's morphTy, so a schema instantiated with a
+`sequential` function would report `pure` — breaking the `parallel-safe` semantic
+contract (spec §4.4: "parallel-safe is a semantic contract, not a hint").
+
+Fix: `resolveEffLevelFinal` now returns a type error when an `EffVar` is
+encountered. Effect polymorphism on def params requires threading `EffVar` through
+`MorphTy.eff: ConcreteEffect`, which is a type system change beyond v1 scope.
+In v1, def params must carry a concrete effect annotation.

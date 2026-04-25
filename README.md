@@ -142,9 +142,10 @@ These were used to:
 
 The TypeScript implementation is being developed using:
 
-* Claude Code
+* Claude Code — primary implementation partner, translating the spec into working code while preserving architectural consistency
+* Codex — adversarial reviewer, auditing the implementation against the spec for semantic drift, IR invariant violations, and elaboration correctness
 
-Claude Code acts as an implementation partner, helping translate the spec into working code while preserving architectural consistency.
+Claude Code and Codex operate as complementary roles: Claude Code implements, Codex challenges. Findings from Codex reviews are cross-checked against the spec (spec always wins), and non-obvious resolution decisions are recorded in `docs/weave-implementation-notes-v1.md`.
 
 ---
 
