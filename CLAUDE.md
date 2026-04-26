@@ -175,6 +175,39 @@ If a change touches many parts of the system, it must be split.
 
 ---
 
+## Release Workflow
+
+When a step is complete (tests pass, typecheck clean):
+
+1. **Propose a commit message** — use conventional commits (`feat:`, `fix:`, `chore:`, `test:`)
+2. **Propose a version bump** — follow these guidelines:
+   - `patch` for incremental steps, fixes, tooling changes
+   - `minor` for a cohesive user-facing milestone (e.g. full CLI usable end-to-end)
+   - Wait for user approval before bumping
+3. **Update `CHANGELOG.md`** — add an entry for the new version under the Keep a Changelog format
+4. **Commit all three together** — version bump, changelog update, and code changes in one commit
+
+Never commit a version bump without a changelog entry, and never update the changelog without bumping the version.
+
+### Codex Reviews
+
+After significant steps, trigger a Codex review:
+
+- **Standard review** (`/codex:review`) — for CLI, tooling, and infrastructure changes
+- **Adversarial review** (`/codex:adversarial-review`) — for core semantics (typechecker, elaborator, interpreter, IR)
+
+Always prepend the review prompt with:
+
+```
+Read CLAUDE.md for architectural constraints and invariants that apply to this codebase.
+Read docs/weave-implementation-notes-v1.md for canonical decisions not in the spec.
+The spec documents in docs/spec/ are the source of truth if anything in the code conflicts with them.
+```
+
+Codex findings are addressed in a follow-up commit. Spec always wins over implementation decisions.
+
+---
+
 ## Tooling Layers
 
 The compiler core (`parser`, `typechecker`, `elaborator`, `ir`, `interpreter`)
