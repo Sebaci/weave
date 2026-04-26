@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.6] - 2026-04-26
+
+### Added
+- `weave run <file> --def <name>` CLI command: parses, typechecks, elaborates, and interprets a named def that takes `Unit` input
+- `MissingEffectHandlerError` in `src/interpreter/eval.ts`: explicit typed error when an `EffectNode` op has no runtime binding
+- `HOST_EFFECTS` in CLI: provides a `print : Text -> Unit` binding to `process.stdout`
+- `examples/hello.weave`: minimal runnable program exercising the `print` effect end-to-end
+- `weave run` rejects defs whose input type is not `Unit` with a clear message showing the actual expected type
+
+---
+
 ## [0.1.5] - 2026-04-26
 
 ### Fixed

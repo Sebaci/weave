@@ -1,53 +1,160 @@
 import { readFileSync } from "node:fs";
 import { parseModule } from "../parser/parse.ts";
 import { checkModule } from "../typechecker/check.ts";
+import { showType } from "../typechecker/index.ts";
+import { elaborateModule } from "../elaborator/index.ts";
+import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
+import { showValue, vText, VUnit, type Value } from "../interpreter/value.ts";
 import { buildSpanMap } from "../surface/span-map.ts";
+
+// ---------------------------------------------------------------------------
+// Host effect bindings supplied by the CLI runtime
+// ---------------------------------------------------------------------------
+
+const HOST_EFFECTS: EffectHandlers = new Map([
+  ["print", (v: Value) => {
+    if (v.tag !== "text") throw new Error(`print: expected Text, got ${v.tag}`);
+    process.stdout.write(v.value + "\n");
+    return VUnit;
+  }],
+]);
+
+// ---------------------------------------------------------------------------
+// Argument parsing
+// ---------------------------------------------------------------------------
 
 const [,, command, filePath, ...rest] = process.argv;
 
-if (command !== "check" || !filePath || rest.length > 0) {
-  console.error("Usage: npm run cli -- check <file>");
-  process.exit(1);
-}
-
-const source = readSource(filePath);
-
-// --- Parse ---
-const parseResult = parseModule(source);
-if (!parseResult.ok) {
-  for (const err of parseResult.errors) {
-    const { line, column } = err.span.start;
-    console.error(`${filePath}:${line}:${column}: error: ${err.message}`);
+if (command === "check") {
+  if (!filePath || rest.length > 0) {
+    die("Usage: npm run cli -- check <file>");
   }
+  runCheck(filePath);
+} else if (command === "run") {
+  if (!filePath || rest.length !== 2 || rest[0] !== "--def" || !rest[1]) {
+    die("Usage: npm run cli -- run <file> --def <name>");
+  }
+  runRun(filePath, rest[1]);
+} else {
+  console.error("Usage:");
+  console.error("  npm run cli -- check <file>");
+  console.error("  npm run cli -- run <file> --def <name>");
   process.exit(1);
 }
-const mod = parseResult.value;
-const spanMap = buildSpanMap(mod);
 
-// --- Typecheck ---
-const checkResult = checkModule(mod);
-if (!checkResult.ok) {
-  for (const err of checkResult.errors) {
-    const span = err.span ?? spanMap.get(err.sourceId);
-    if (span) {
-      const { line, column } = span.start;
-      console.error(`${filePath}:${line}:${column}: error: ${err.message}`);
-    } else {
-      console.error(`${filePath}: error: ${err.message}`);
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+function runCheck(file: string): void {
+  const source = readSource(file);
+
+  const parseResult = parseModule(source);
+  if (!parseResult.ok) {
+    for (const err of parseResult.errors) {
+      const { line, column } = err.span.start;
+      console.error(`${file}:${line}:${column}: error: ${err.message}`);
     }
+    process.exit(1);
   }
-  process.exit(1);
+  const mod = parseResult.value;
+  const spanMap = buildSpanMap(mod);
+
+  const checkResult = checkModule(mod);
+  if (!checkResult.ok) {
+    for (const err of checkResult.errors) {
+      const span = err.span ?? spanMap.get(err.sourceId);
+      if (span) {
+        const { line, column } = span.start;
+        console.error(`${file}:${line}:${column}: error: ${err.message}`);
+      } else {
+        console.error(`${file}: error: ${err.message}`);
+      }
+    }
+    process.exit(1);
+  }
+
+  console.log(`${file}: OK`);
 }
 
-console.log(`${filePath}: OK`);
+function runRun(file: string, defName: string): void {
+  const source = readSource(file);
 
+  // --- Parse ---
+  const parseResult = parseModule(source);
+  if (!parseResult.ok) {
+    for (const err of parseResult.errors) {
+      const { line, column } = err.span.start;
+      console.error(`${file}:${line}:${column}: error: ${err.message}`);
+    }
+    process.exit(1);
+  }
+  const mod = parseResult.value;
+  const spanMap = buildSpanMap(mod);
+
+  // --- Typecheck ---
+  const checkResult = checkModule(mod);
+  if (!checkResult.ok) {
+    for (const err of checkResult.errors) {
+      const span = err.span ?? spanMap.get(err.sourceId);
+      if (span) {
+        const { line, column } = span.start;
+        console.error(`${file}:${line}:${column}: error: ${err.message}`);
+      } else {
+        console.error(`${file}: error: ${err.message}`);
+      }
+    }
+    process.exit(1);
+  }
+  const typedMod = checkResult.value;
+
+  // --- Check def exists and takes Unit input ---
+  const typedDef = typedMod.typedDefs.get(defName);
+  if (!typedDef) {
+    die(`weave run: no def '${defName}' in ${file}`);
+  }
+  if (typedDef.morphTy.input.tag !== "Unit") {
+    die(
+      `weave run: def '${defName}' expects input type ${showType(typedDef.morphTy.input)}, ` +
+      `but CLI execution currently supplies Unit`,
+    );
+  }
+
+  // --- Elaborate ---
+  const elabResult = elaborateModule(typedMod);
+  if (!elabResult.ok) {
+    for (const err of elabResult.errors) {
+      console.error(`${file}: elaboration error: ${err.message}`);
+    }
+    process.exit(1);
+  }
+  const elabMod = elabResult.value;
+
+  // --- Interpret ---
+  try {
+    const result = interpret(elabMod, defName, VUnit, HOST_EFFECTS);
+    console.log(showValue(result));
+  } catch (e) {
+    if (e instanceof MissingEffectHandlerError) {
+      die(`weave run: no runtime binding for effect operation '${e.op}'`);
+    }
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
 // ---------------------------------------------------------------------------
 
 function readSource(path: string): string {
   try {
     return readFileSync(path, "utf-8");
   } catch (e) {
-    console.error(`weave: ${path}: ${(e as NodeJS.ErrnoException).message}`);
-    process.exit(1);
+    die(`weave: ${path}: ${(e as NodeJS.ErrnoException).message}`);
   }
+}
+
+function die(message: string): never {
+  console.error(message);
+  process.exit(1);
 }

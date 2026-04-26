@@ -99,6 +99,14 @@ function valuesEqual(a: Value, b: Value): boolean {
 
 export type EffectHandlers = Map<string, (input: Value) => Value>;
 
+/** Thrown when interpret encounters an EffectNode with no registered handler. */
+export class MissingEffectHandlerError extends Error {
+  constructor(public readonly op: string) {
+    super(`no runtime binding for effect operation '${op}'`);
+    this.name = "MissingEffectHandlerError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -229,7 +237,7 @@ export function evalGraph(
 
       case "effect": {
         const handler = effects.get(node.op);
-        if (!handler) throw new Error(`interpret: no effect handler for '${node.op}'`);
+        if (!handler) throw new MissingEffectHandlerError(node.op);
         portValues.set(node.output.id, handler(getValue(node.input.id)));
         break;
       }

@@ -1,0 +1,6 @@
+module Examples.Hello
+
+effect print : Text -> Unit ! sequential
+
+def greet : Unit -> Unit ! sequential =
+  "Hello, Weave!" >>> perform print
