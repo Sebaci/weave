@@ -1,0 +1,17 @@
+module Examples.Length
+
+type List a =
+  | Nil
+  | Cons { head: a, tail: List a }
+
+def length : List Int -> Int =
+  fold {
+    Nil:  0,
+    Cons: { head: _, tail } >>> tail + 1,
+  }
+
+def isEmpty : List Int -> Bool =
+  fold {
+    Nil:  True,
+    Cons: { head: _, tail: _ } >>> False,
+  }

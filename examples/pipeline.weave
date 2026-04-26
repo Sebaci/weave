@@ -1,0 +1,31 @@
+module Examples.Pipeline
+
+type List a =
+  | Nil
+  | Cons { head: a, tail: List a }
+
+type Stats =
+  | Stats { sum: Int, length: Int }
+
+def sum : List Int -> Int =
+  fold {
+    Nil:  0,
+    Cons: { head, tail } >>> head + tail,
+  }
+
+def length : List Int -> Int =
+  fold {
+    Nil:  0,
+    Cons: { head: _, tail } >>> tail + 1,
+  }
+
+def mkStats : List Int -> Stats =
+  fanout { sum, length } >>> Stats
+
+def diff : Stats -> Int =
+  case {
+    Stats: { sum, length } >>> sum - length,
+  }
+
+def sumMinusLength : List Int -> Int =
+  mkStats >>> diff

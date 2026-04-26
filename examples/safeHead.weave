@@ -1,0 +1,15 @@
+module Examples.SafeHead
+
+type List a =
+  | Nil
+  | Cons { head: a, tail: List a }
+
+type Maybe a =
+  | None
+  | Some { value: a }
+
+def safeHead : List Int -> Maybe Int =
+  case {
+    Nil:  None,
+    Cons: { head, tail: _ } >>> fanout { value: head } >>> Some,
+  }

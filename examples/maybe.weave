@@ -1,0 +1,17 @@
+module Examples.Maybe
+
+type Maybe a =
+  | None
+  | Some { value: a }
+
+def fromMaybe : Maybe Int -> Int =
+  case {
+    None: 0,
+    Some: { value } >>> value,
+  }
+
+def mapMaybe (f : Int -> Int) : Maybe Int -> Maybe Int =
+  case {
+    None: None,
+    Some: { value } >>> fanout { value: value >>> f } >>> Some,
+  }

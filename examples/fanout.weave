@@ -1,0 +1,17 @@
+module Examples.Fanout
+
+type Point =
+  | Point { x: Int, y: Int }
+
+def reflect : Point -> Point =
+  case {
+    Point: { x, y } >>> fanout { x: y, y: x } >>> Point,
+  }
+
+def translate : Point -> Point =
+  case {
+    Point: { x, y } >>> fanout { x: x + 1, y: y + 1 } >>> Point,
+  }
+
+def reflectThenTranslate : Point -> Point =
+  reflect >>> translate
