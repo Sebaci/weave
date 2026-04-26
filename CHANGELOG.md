@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.7] - 2026-04-26
+
+### Fixed
+- `weave run` now rejects polymorphic/schema defs with a clear diagnostic instead of crashing with an internal interpreter error
+- `weave run` now registers host effect bindings under both bare and module-qualified names so `perform print` and `perform Examples.Hello.print` both resolve
+- `weave run` no longer prints `()` when the result is `Unit` — effects write their own output; the Unit return value is not displayed
+
+---
+
 ## [0.1.6] - 2026-04-26
 
 ### Added

@@ -4,7 +4,7 @@ import { checkModule } from "../typechecker/check.ts";
 import { showType } from "../typechecker/index.ts";
 import { elaborateModule } from "../elaborator/index.ts";
 import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
-import { showValue, vText, VUnit, type Value } from "../interpreter/value.ts";
+import { showValue, VUnit, type Value } from "../interpreter/value.ts";
 import { buildSpanMap } from "../surface/span-map.ts";
 
 // ---------------------------------------------------------------------------
@@ -130,10 +130,23 @@ function runRun(file: string, defName: string): void {
   }
   const elabMod = elabResult.value;
 
+  // Guard: schema/polymorphic defs are omitted from the elaborated graph map.
+  if (!elabMod.defs.has(defName)) {
+    die(`weave run: def '${defName}' is polymorphic and cannot be run directly`);
+  }
+
+  // Augment host effects with qualified names (e.g. "Examples.Hello.print")
+  // so that `perform Examples.Hello.print` and `perform print` both resolve.
+  const modulePrefix = mod.path.join(".");
+  const effects: EffectHandlers = new Map(HOST_EFFECTS);
+  for (const [bare, handler] of HOST_EFFECTS) {
+    effects.set(`${modulePrefix}.${bare}`, handler);
+  }
+
   // --- Interpret ---
   try {
-    const result = interpret(elabMod, defName, VUnit, HOST_EFFECTS);
-    console.log(showValue(result));
+    const result = interpret(elabMod, defName, VUnit, effects);
+    if (result.tag !== "unit") console.log(showValue(result));
   } catch (e) {
     if (e instanceof MissingEffectHandlerError) {
       die(`weave run: no runtime binding for effect operation '${e.op}'`);
