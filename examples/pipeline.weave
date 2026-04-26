@@ -20,7 +20,7 @@ def length : List Int -> Int =
   }
 
 def mkStats : List Int -> Stats =
-  fanout { sum, length } >>> Stats
+  fanout { sum: sum, length: length } >>> Stats
 
 def diff : Stats -> Int =
   case {

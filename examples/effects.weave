@@ -1,0 +1,12 @@
+module Examples.Effects
+
+effect print : Text -> Unit ! sequential
+
+def announce : Unit -> Unit ! sequential =
+  "Starting pipeline" >>> perform print
+
+def finish : Unit -> Unit ! sequential =
+  "Pipeline complete" >>> perform print
+
+def pipeline : Unit -> Unit ! sequential =
+  announce >>> finish
