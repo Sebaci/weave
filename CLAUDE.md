@@ -177,26 +177,40 @@ If a change touches many parts of the system, it must be split.
 
 ## Release Workflow
 
-When a step is complete (tests pass, typecheck clean):
+### Commits
 
-1. **Propose a commit message** — use conventional commits (`feat:`, `fix:`, `chore:`, `test:`)
-2. **Propose a version bump** — follow these guidelines:
-   - `patch` for incremental steps, fixes, tooling changes
-   - `minor` for a cohesive user-facing milestone (e.g. full CLI usable end-to-end)
-   - Wait for user approval before bumping
-3. **Update `CHANGELOG.md`** — add an entry for the new version under the Keep a Changelog format
-4. **Commit all three together** — version bump, changelog update, and code changes in one commit
+Commit freely during development. Use conventional commits (`feat:`, `fix:`, `chore:`, `test:`).
+Commits do **not** automatically trigger a version bump.
 
-Never commit a version bump without a changelog entry, and never update the changelog without bumping the version.
+### Version bumps
+
+A version bump marks a **stable, reviewed state** — not a commit count.
+Bump once per step, **after** any Codex review is resolved and the step is complete.
+
+Guidelines:
+- `patch` — a step is done and reviewed: a new command, a new feature, a targeted fix. Most steps qualify.
+- `minor` — a meaningful milestone is crossed: multiple steps combine into something a user would describe as a cohesive capability (e.g. "CLI fully usable", "language core complete"). Explicitly agreed with the user, not automatic.
+- `major` — `1.0.0` marks a mature, stable implementation of Weave v1. Reserved for when the language and toolchain are considered complete and solid.
+
+When bumping:
+1. Update `package.json` version
+2. Add a `CHANGELOG.md` entry — describe what the step **delivers to users**, not implementation details or review fixes
+3. Commit version + changelog together (code may be in prior commits)
+
+Never bump without a changelog entry, and never update the changelog without bumping.
 
 ### Codex Reviews
 
-After significant steps, trigger a Codex review:
+After completing a step (before the version bump), suggest a Codex review to the user.
 
-- **Standard review** (`/codex:review`) — for CLI, tooling, and infrastructure changes
-- **Adversarial review** (`/codex:adversarial-review`) — for core semantics (typechecker, elaborator, interpreter, IR)
+- **Standard review** (`/codex:review`) — CLI, tooling, infrastructure
+- **Adversarial review** (`/codex:adversarial-review`) — core semantics (typechecker, elaborator, interpreter, IR)
 
-Always prepend the review prompt with:
+Do **not** invoke the review automatically. Instead:
+1. State which review type is appropriate and why
+2. Present the suggested prompt for the user to run
+
+Always include this preamble in the prompt:
 
 ```
 Read CLAUDE.md for architectural constraints and invariants that apply to this codebase.
@@ -204,7 +218,7 @@ Read docs/weave-implementation-notes-v1.md for canonical decisions not in the sp
 The spec documents in docs/spec/ are the source of truth if anything in the code conflicts with them.
 ```
 
-Codex findings are addressed in a follow-up commit. Spec always wins over implementation decisions.
+Address Codex findings in follow-up commits before bumping. Spec always wins over implementation decisions.
 
 ---
 
