@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.8] - 2026-04-26
+
+### Added
+- Seven example programs covering the core language surface:
+  `sum.weave` (fold), `length.weave` (fold + Bool carrier), `pipeline.weave` (fanout + `>>>` composition),
+  `maybe.weave` (Maybe ADT + schema param), `safeHead.weave` (non-recursive `case`),
+  `map.weave` (higher-order fold with type variables), `fanout.weave` (parallel field construction),
+  `effects.weave` (effect declaration + `perform` + sequential composition),
+  `hello.weave` (minimal effectful entry point)
+
+---
+
 ## [0.1.7] - 2026-04-26
 
 ### Fixed
