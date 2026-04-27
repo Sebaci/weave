@@ -971,9 +971,11 @@ function checkHandler(
   handler: Handler, payloadTy: Type, env: CheckEnv, sourceId: SourceNodeId,
 ): TypeResult<{ typedHandler: TypedHandler; outputTy: Type; eff: ConcreteEffect }> {
   if (handler.tag === "NullaryHandler") {
-    // Handler context: fresh locals, input = Unit
-    const handlerEnv = withFreshLocals(env, { tag: "Unit" });
-    const bodyR = checkExpr(handler.body, { tag: "Unit" }, handlerEnv);
+    // Branch input type is determined by the constructor's payload (spec §10):
+    // nullary constructor → payloadTy = Unit; record-payload constructor → payloadTy = Pi.
+    // No field bindings are introduced; the body receives payloadTy as its input.
+    const handlerEnv = withFreshLocals(env, payloadTy);
+    const bodyR = checkExpr(handler.body, payloadTy, handlerEnv);
     if (!bodyR.ok) return bodyR;
     return ok({
       typedHandler: { tag: "Nullary", body: bodyR.value },
