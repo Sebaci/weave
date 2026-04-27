@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.9] - 2026-04-28
+
+### Added
+- `let.weave` — let binding inside a fold branch (`sumOfDoubles`)
+- `over.weave` — field-local transform with chained `over` (`widen`, `scale`, `area`)
+- `build.weave` — unit-sourced record construction, runnable with `weave run` (`origin`, `unitBox`)
+
+### Fixed
+- `build` fields that reference a named def (e.g. `build { topLeft: origin }`) now elaborate correctly; the elaborator was creating a raw port ID with no producer node, causing IR-1 validation failures
+- `NullaryHandler` branch bodies now receive the constructor's payload type as input, not `Unit`; this lets `over`, projections, and other record-typed steps work directly in binderless case branches (e.g. `Rect: over .width f >>> Rect`)
+- Elaborator branch graphs for binderless record-payload handlers now carry the correct input port type in the IR, consistent with the spec
+
+---
+
 ## [0.1.8] - 2026-04-26
 
 ### Added
