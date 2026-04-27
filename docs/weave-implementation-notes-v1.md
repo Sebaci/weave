@@ -581,6 +581,40 @@ TupleNode (which are implicitly unit-sourced and have no explicit input port), t
 DropNode output remains unconnected — this is a structural consequence of those
 nodes not having wirable input ports, not a graph error.
 
+### 9.18 build field expressions require a real unit ConstNode as input source
+
+`elabBuild` elaborates each field expression in a fresh sub-context with a unit
+input. The original code created a raw port ID (`mkPort({tag:"Unit"}).id`) as the
+input port. For field expressions that are `Ref` nodes (e.g., def references like
+`origin`), the elaborator wires this ID to the Ref's input port. Since the raw ID
+has no producer node, this caused IR-1 validation failures ("wire references unknown
+port").
+
+Fix: for each build field, create a real `ConstNode` (value: unit) in the
+sub-builder before elaborating the field expression. The ConstNode's output port is
+used as the unit input. For literal fields, the ConstNode's output is never wired
+(literals are self-contained ConstNodes), which is a harmless dangling output.
+
+### 9.19 The spec's filter example is inconsistent with the elaboration rules
+
+The surface-syntax spec (§10 and §12) presents a `filter` function that uses
+`let passed = head >>> pred in passed >>> case { True: fanout { head, tail } >>> Cons, ... }`.
+Inside the nullary case branches (`True:`, `False:`), `head` and `tail` from the
+outer `{ head, tail } >>>` scope are referenced.
+
+However, the elaboration spec (§10 case) explicitly states:
+> **Nullary `Tagi`:** `hi` elaborated under `(Γ_global, Γ_local = {})`.
+> Outer `Γ_local` entries are ill-typed in handler contexts and rejected.
+
+So outer locals from the `let` scope are inaccessible inside nullary case branches.
+The spec's filter example is self-contradictory: it presents code that violates the
+elaboration rules it defines.
+
+The implementation correctly follows the elaboration rules (outer locals are
+inaccessible in handler contexts). The `let.weave` example demonstrates `let` with
+a pattern that is actually valid: naming an intermediate computation inside a fold
+branch body that doesn't involve a nested case dispatch.
+
 ### 9.17 Effect variables in def params are not supported in v1
 
 `resolveEffLevelFinal` previously silently converted any unresolved `EffVar`

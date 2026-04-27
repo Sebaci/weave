@@ -393,19 +393,26 @@ function elabBuild(
   const tupleInputs: { label: string; port: { id: string; ty: Type } }[] = [];
 
   for (const field of buildNode.fields) {
-    // Fresh builder not needed: field exprs are unit-sourced and produce ConstNodes.
-    // We elaborate each field expr in a sub-context with unit input.
     const fieldBuilder = new GraphBuilder();
-    const unitPortId   = mkPort({ tag: "Unit" }).id;
+    // A real ConstNode is needed as the unit source so that Ref nodes (and any
+    // other node that wires to its input) have a valid producer port.
+    const unitOutPort = mkPort({ tag: "Unit" });
+    const unitSourceNode: ConstNode = {
+      kind: "const", value: { tag: "unit" },
+      id: freshNodeId(), effect: "pure",
+      output: unitOutPort,
+      provenance: [prov(srcId, "build-unit-source")],
+    };
+    fieldBuilder.addNode(unitSourceNode);
     const fieldCtx: ElabContext = {
       ...ctx,
       builder:    fieldBuilder,
-      inputPort:  unitPortId,
+      inputPort:  unitOutPort.id,
       inputType:  { tag: "Unit" },
       locals:     new Map(), // build fields must be closed
       sourceId:   srcId,
     };
-    const fieldOutPortId = elabExpr(field.expr, unitPortId, fieldCtx);
+    const fieldOutPortId = elabExpr(field.expr, unitOutPort.id, fieldCtx);
     const fieldOutPort   = mkPort(field.expr.morphTy.output);
 
     // Splice the field sub-builder's nodes/wires into the main builder.

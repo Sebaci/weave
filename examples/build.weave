@@ -1,0 +1,15 @@
+module Examples.Build
+
+type Point =
+  | Point { x: Int, y: Int }
+
+-- origin: Unit -> Point via build (all fields are literal constants).
+def origin : Unit -> Point =
+  build { x: 0, y: 0 } >>> Point
+
+type BoundingBox =
+  | BoundingBox { topLeft: Point, bottomRight: Point }
+
+-- unitBox: build with def references — each field is evaluated from unit.
+def unitBox : Unit -> BoundingBox =
+  build { topLeft: origin, bottomRight: origin } >>> BoundingBox

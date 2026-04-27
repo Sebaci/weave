@@ -1,0 +1,22 @@
+module Examples.Over
+
+type Rect =
+  | Rect { width: Int, height: Int }
+
+-- Apply a transform to the width field only.
+def widen (f : Int -> Int ! pure) : Rect -> Rect ! pure =
+  case {
+    Rect: { width, height } >>> over .width f >>> Rect,
+  }
+
+-- Chain over to apply a transform to both fields independently.
+def scale (f : Int -> Int ! pure) : Rect -> Rect ! pure =
+  case {
+    Rect: { width, height } >>> over .width f >>> over .height f >>> Rect,
+  }
+
+-- Compute the area of a Rect.
+def area : Rect -> Int =
+  case {
+    Rect: { width, height } >>> width * height,
+  }

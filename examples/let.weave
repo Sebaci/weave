@@ -1,0 +1,16 @@
+module Examples.Let
+
+type List a =
+  | Nil
+  | Cons { head: a, tail: List a }
+
+-- Sum of doubled elements.
+-- let names the intermediate value to make the pipeline readable.
+-- head is used twice (pure projection, duplication is fine).
+def sumOfDoubles : List Int -> Int =
+  fold {
+    Nil:  0,
+    Cons: { head, tail } >>>
+      let doubled = head + head in
+      doubled + tail,
+  }
