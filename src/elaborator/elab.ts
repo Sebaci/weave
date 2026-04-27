@@ -585,13 +585,14 @@ function elabBranchHandler(
   const branchBuilder = new GraphBuilder();
 
   if (handler.tag === "Nullary") {
-    // Input type is Unit; fresh Γ_local
-    const inPort  = mkPort({ tag: "Unit" });
+    // Branch input type is the constructor payload (Unit for nullary constructors,
+    // the record type for record-payload constructors without { fields } >>>).
+    const inPort  = mkPort(branch.payloadTy);
     const branchCtx: ElabContext = {
       ...ctx,
       builder:    branchBuilder,
       inputPort:  inPort.id,
-      inputType:  { tag: "Unit" },
+      inputType:  branch.payloadTy,
       locals:     new Map(),
       paramPorts: new Map(),
       sourceId:   srcId,

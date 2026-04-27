@@ -595,6 +595,19 @@ sub-builder before elaborating the field expression. The ConstNode's output port
 used as the unit input. For literal fields, the ConstNode's output is never wired
 (literals are self-contained ConstNodes), which is a harmless dangling output.
 
+### 9.20 elabBranchHandler Nullary path uses branch.payloadTy, not Unit
+
+`elabBranchHandler` builds a sub-graph for each case/fold branch. For `Nullary`
+handlers (no `{ fields } >>>` prefix), the original code hardcoded `Unit` as both
+the branch graph input port type and `ElabContext.inputType`. This matched truly
+nullary constructors but was wrong for record-payload constructors whose handler
+omits `{ fields } >>>` (e.g. `Rect: over .width f >>> Rect`).
+
+Fix: use `branch.payloadTy` (computed by the typechecker from the constructor's
+payload) for the branch graph input. For truly nullary constructors `payloadTy` is
+already `Unit`, so those are unaffected. This keeps the elaborated IR consistent
+with the spec (§10: branch input type = Pi for record-payload constructors).
+
 ### 9.19 The spec's filter example is inconsistent with the elaboration rules
 
 The surface-syntax spec (§10 and §12) presents a `filter` function that uses
