@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] - 2026-04-29
+
+### Added
+- `case .field` — field-focused coproduct eliminator: eliminates a variant-typed field from a record while exposing the surrounding context to each branch handler. Type: `{ k: Σ | ρ } -> A`. Nullary branches receive `ρ`; record-payload branches receive `merge(Pi, ρ)`.
+- `case .field` fully wired through all phases: parser, typechecker, typed AST, IR (`CaseNode.field` / `CaseNode.contextTy`), elaborator, and interpreter.
+- `filter.weave` — `let` + `case .field` pattern: keeps elements satisfying a predicate without explicit fanout threading of surrounding fields.
+- `caseField.weave` — `case .field` branching on a record-payload variant with context row access.
+- Bug fix: `collectFreeLocalNames` now correctly tracks fanout shorthand fields (`{ head, tail }`) in the live set for `let` elaboration. Previously, shorthand fanout in let-body was invisible to the live set computation, causing the filter pattern to be inexpressible.
+- Bool (`True` / `False`) may now be used as the discriminant type in `case .field`; it is treated as a builtin two-constructor variant.
+
+---
+
 ## [0.1.9] - 2026-04-28
 
 ### Added
