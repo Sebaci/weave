@@ -1299,24 +1299,42 @@ function checkLet(
 /** Collect Γ_local names referenced in an expression (surface level). */
 function collectFreeLocalNames(expr: Expr, locals: LocalEnv): string[] {
   const found = new Set<string>();
-  const visitStep = (step: Step) => {
-    if (step.tag === "Name" && locals.has(step.name)) found.add(step.name);
-    if (step.tag === "Build")   step.fields.forEach((f) => visitExpr(f.expr));
+
+  function visitExpr(e: Expr, loc: LocalEnv): void {
+    e.steps.forEach((s) => visitStep(s, loc));
+  }
+
+  function visitStep(step: Step, loc: LocalEnv): void {
+    if (step.tag === "Name" && loc.has(step.name)) found.add(step.name);
+    if (step.tag === "Build")   step.fields.forEach((f) => visitExpr(f.expr, loc));
     if (step.tag === "Fanout")  step.fields.forEach((f) => {
-      if (f.tag === "Field") visitExpr(f.expr);
+      if (f.tag === "Field") visitExpr(f.expr, loc);
       // Shorthand `name` in fanout is sugar for `name: name` — it references a local
-      else if (locals.has(f.name)) found.add(f.name);
+      else if (loc.has(f.name)) found.add(f.name);
     });
-    if (step.tag === "Let")     { visitExpr(step.rhs); visitExpr(step.body); }
-    if (step.tag === "Over")    visitStep(step.transform);
+    if (step.tag === "Let")     { visitExpr(step.rhs, loc); visitExpr(step.body, loc); }
+    if (step.tag === "Over")    visitStep(step.transform, loc);
     if (step.tag === "Case" || step.tag === "Fold")
-      step.branches.forEach((b) => visitHandler(b.handler));
-    if (step.tag === "Infix")   { visitStep(step.left); visitStep(step.right); }
-    if (step.tag === "SchemaInst") step.args.forEach((a) => visitExpr(a.expr));
-  };
-  const visitExpr = (e: Expr) => e.steps.forEach(visitStep);
-  const visitHandler = (h: Handler) => visitExpr(h.body);
-  visitExpr(expr);
+      step.branches.forEach((b) => visitHandler(b.handler, loc));
+    if (step.tag === "Infix")   { visitStep(step.left, loc); visitStep(step.right, loc); }
+    if (step.tag === "SchemaInst") step.args.forEach((a) => visitExpr(a.expr, loc));
+  }
+
+  function visitHandler(h: Handler, loc: LocalEnv): void {
+    if (h.tag === "NullaryHandler") {
+      visitExpr(h.body, loc);
+    } else {
+      // Record handler: Bind binders shadow outer locals within the handler body.
+      // Wildcard binders do not introduce a binding, so they do not shadow.
+      const restricted = new Map(loc);
+      for (const b of h.binders) {
+        if (b.tag === "Bind") restricted.delete(b.name);
+      }
+      visitExpr(h.body, restricted);
+    }
+  }
+
+  visitExpr(expr, locals);
   return [...found];
 }
 
