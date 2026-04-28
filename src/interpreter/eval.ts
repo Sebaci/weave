@@ -222,10 +222,44 @@ export function evalGraph(
 
       case "case": {
         const v = getValue(node.input.id);
-        if (v.tag !== "variant") throw new Error(`interpret: case: expected variant, got ${v.tag}`);
-        const branch = node.branches.find((b) => b.tag === v.ctor);
-        if (!branch) throw new Error(`interpret: case: no branch for '${v.ctor}'`);
-        portValues.set(node.output.id, evalGraph(branch.graph, v.payload, defs, effects));
+        if (node.field !== undefined) {
+          // Field-focused case .field: input is a record; discriminate on node.field
+          if (v.tag !== "record") throw new Error(`interpret: case .${node.field}: expected record, got ${v.tag}`);
+          const kVal = v.fields.get(node.field);
+          if (!kVal) throw new Error(`interpret: case .${node.field}: field '${node.field}' not found`);
+          // Context row: input record minus the discriminant field
+          const contextRow = new Map<string, Value>(v.fields);
+          contextRow.delete(node.field);
+          // Determine constructor name from the field value
+          let ctorName: string;
+          let mergedFields: Map<string, Value>;
+          if (kVal.tag === "bool") {
+            // Bool is a builtin variant True | False; nullary branches receive contextRow
+            ctorName = kVal.value ? "True" : "False";
+            mergedFields = contextRow;
+          } else if (kVal.tag === "variant") {
+            ctorName = kVal.ctor;
+            if (kVal.payload.tag === "unit") {
+              mergedFields = contextRow;
+            } else if (kVal.payload.tag === "record") {
+              mergedFields = new Map<string, Value>(kVal.payload.fields);
+              for (const [k, val] of contextRow) mergedFields.set(k, val);
+            } else {
+              throw new Error(`interpret: case .${node.field}: payload is not a record or unit`);
+            }
+          } else {
+            throw new Error(`interpret: case .${node.field}: field '${node.field}' is not a variant or bool`);
+          }
+          const branch = node.branches.find((b) => b.tag === ctorName);
+          if (!branch) throw new Error(`interpret: case .${node.field}: no branch for '${ctorName}'`);
+          portValues.set(node.output.id, evalGraph(branch.graph, { tag: "record", fields: mergedFields }, defs, effects));
+        } else {
+          // Plain case: input is the variant value directly
+          if (v.tag !== "variant") throw new Error(`interpret: case: expected variant, got ${v.tag}`);
+          const branch = node.branches.find((b) => b.tag === v.ctor);
+          if (!branch) throw new Error(`interpret: case: no branch for '${v.ctor}'`);
+          portValues.set(node.output.id, evalGraph(branch.graph, v.payload, defs, effects));
+        }
         break;
       }
 

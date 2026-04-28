@@ -117,14 +117,22 @@ export type TupleNode = NodeBase & {
   effect: "pure";
 };
 
-/** caseof { Tag1: h1, ..., Tagn: hn } : Σ -> A */
+/**
+ * caseof { Tag1: h1, ..., Tagn: hn } : Σ -> A  (plain case)
+ * CaseNode(field=k, contextTy=ρ) : { k: Σ | ρ } -> A  (field-focused case .k)
+ *
+ * IR-6b (checked): when `field` is present, each branch graph's input port type
+ * must be merge(Pi, ρ) for record-payload constructors, or ρ for nullary constructors.
+ */
 export type CaseNode = NodeBase & {
-  kind:      "case";
-  input:     Port;
-  output:    Port;
-  variantTy: Type;   // Σ — the closed variant type being eliminated
-  outTy:     Type;   // A — the shared result type of all branches
-  branches:  { tag: string; graph: Graph }[];
+  kind:       "case";
+  input:      Port;
+  output:     Port;
+  variantTy:  Type;        // Σ — the closed variant type being eliminated
+  outTy:      Type;        // A — the shared result type of all branches
+  branches:   { tag: string; graph: Graph }[];
+  field?:     string;      // discriminant field name; absent for plain case
+  contextTy?: Type;        // ρ = input record type minus field k; absent for plain case
 };
 
 /**

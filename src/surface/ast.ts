@@ -167,8 +167,10 @@ export type Step =
   /**
    * Coproduct eliminator. Branches must unify to a single output type.
    * Syntactically identical to Fold; the distinction is type-directed.
+   * When `field` is present, this is `case .field { ... }`: a field-focused
+   * coproduct eliminator with type { k: Σ | ρ } -> A.
    */
-  | { tag: "Case";       branches: Branch[];                         meta: NodeMeta }
+  | { tag: "Case";       field?: string; branches: Branch[];         meta: NodeMeta }
 
   /**
    * Catamorphism over a recursive ADT. Branch handlers receive already-folded

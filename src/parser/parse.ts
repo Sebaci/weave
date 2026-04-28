@@ -594,6 +594,14 @@ class Parser {
   parseCaseOrFold(tag: "Case" | "Fold"): Step {
     const start = this.cur().span;
     this.advance(); // consume 'case' or 'fold'
+
+    // case .field { ... } — field-focused variant; only valid for 'case'
+    let field: string | undefined;
+    if (tag === "Case" && this.cur().kind === "DOT") {
+      this.advance(); // consume '.'
+      field = this.expect("IDENT", "Expected field name after 'case .'").text;
+    }
+
     this.expect("LBRACE");
     const branches: Branch[] = [];
     this.eat("PIPE"); // optional leading |
@@ -602,7 +610,9 @@ class Parser {
       branches.push(this.parseBranch());
     this.eat("COMMA"); // trailing comma
     this.expect("RBRACE");
-    return { tag, branches, meta: this.mkSpan(start) };
+    return field !== undefined
+      ? { tag: "Case", field, branches, meta: this.mkSpan(start) }
+      : { tag, branches, meta: this.mkSpan(start) };
   }
 
   parseBranch(): Branch {

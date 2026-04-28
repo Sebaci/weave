@@ -649,8 +649,11 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
       return checkFanout(step.fields, inputTy, env, step.meta.id);
     }
 
-    // --- Case ---
+    // --- Case / case .field ---
     case "Case": {
+      if (step.field !== undefined) {
+        return checkCaseField(step.field, step.branches, inputTy, env, step.meta.id);
+      }
       return checkCaseOrFold(step.branches, inputTy, env, step.meta.id, "case");
     }
 
@@ -967,6 +970,179 @@ function checkCaseOrFold(
   ));
 }
 
+// ---------------------------------------------------------------------------
+// case .field — field-focused coproduct elimination
+// ---------------------------------------------------------------------------
+
+function checkCaseField(
+  field: string,
+  branches: Branch[],
+  inputTy: Type,
+  env: CheckEnv,
+  sourceId: SourceNodeId,
+): TypeResult<TypedStep> {
+  if (inputTy.tag !== "Record") {
+    return typeError(`case .${field}: input must be a record type, got ${showType(inputTy)}`, sourceId);
+  }
+
+  const kField = inputTy.fields.find((f) => f.name === field);
+  if (!kField) {
+    return typeError(`case .${field}: no field '${field}' in ${showType(inputTy)}`, sourceId);
+  }
+
+  // ρ = input record minus field k
+  const contextTy: Type = { tag: "Record", fields: inputTy.fields.filter((f) => f.name !== field), rest: null };
+
+  // Bool is a builtin primitive but semantically a variant True | False
+  const boolCtors = [
+    { ctorName: "True",  adtName: "Bool", adtParams: [] as string[], payloadTy: null as Type | null },
+    { ctorName: "False", adtName: "Bool", adtParams: [] as string[], payloadTy: null as Type | null },
+  ];
+  const variantInfo = kField.ty.tag === "Bool"
+    ? ok({ info: { name: "Bool", params: [] as string[], isRecursive: false, sourceId, body: { tag: "Variant" as const, ctors: boolCtors } }, typeArgs: new Map<string, Type>() })
+    : resolveVariant(kField.ty, env.typeDecls, sourceId);
+  if (!variantInfo.ok) {
+    return typeError(`case .${field}: field '${field}' must be a variant type, got ${showType(kField.ty)}`, sourceId);
+  }
+  const { info, typeArgs } = variantInfo.value;
+
+  if (info.body.tag !== "Variant") {
+    return typeError(`case .${field}: field type must be a variant`, sourceId);
+  }
+
+  const ctorNames  = new Set(info.body.ctors.map((c) => c.ctorName));
+  const branchCtors = new Set(branches.map((b) => b.ctor));
+  const errors: TypeError[] = [];
+  for (const name of ctorNames)  { if (!branchCtors.has(name)) errors.push({ message: `case .${field}: missing branch for '${name}'`, sourceId }); }
+  for (const name of branchCtors) { if (!ctorNames.has(name))  errors.push({ message: `case .${field}: unknown constructor '${name}'`, sourceId }); }
+  if (errors.length > 0) return fail(errors);
+
+  const typedBranches: TypedBranch[] = [];
+  let overallEff: ConcreteEffect = "pure";
+  let outputTy: Type | null = null;
+  let subst: Subst = new Map();
+  let effSubst: EffSubst = new Map();
+
+  for (const branch of branches) {
+    const ctorInfo = findCtor(info.body.ctors, branch.ctor);
+    if (!ctorInfo) continue;
+
+    const rawPi = instantiatePayload(ctorInfo, typeArgs);
+    const piTy: Type = rawPi ?? { tag: "Unit" };
+
+    let branchInputTy: Type;
+    if (piTy.tag === "Unit") {
+      branchInputTy = contextTy;
+    } else {
+      if (piTy.tag !== "Record") {
+        errors.push({ message: `case .${field}: constructor '${branch.ctor}' has non-record payload ${showType(piTy)}`, sourceId });
+        continue;
+      }
+      // Check field disjointness: fields(Pi) ∩ fields(ρ) = ∅
+      const piFieldNames = new Set(piTy.fields.map((f) => f.name));
+      for (const rhoF of contextTy.fields) {
+        if (piFieldNames.has(rhoF.name)) {
+          errors.push({ message: `case .${field}: payload field '${rhoF.name}' of '${branch.ctor}' collides with context row`, sourceId });
+        }
+      }
+      branchInputTy = { tag: "Record", fields: [...piTy.fields, ...contextTy.fields], rest: null };
+    }
+
+    const handlerR = checkCaseFieldHandler(branch.handler, branchInputTy, contextTy, env, sourceId);
+    if (!handlerR.ok) { errors.push(...handlerR.errors); continue; }
+    const { typedHandler, outputTy: branchOut, eff: branchEff } = handlerR.value;
+
+    overallEff = effectJoin(overallEff, branchEff);
+
+    if (outputTy === null) {
+      outputTy = branchOut;
+    } else {
+      const uR = unify(outputTy, branchOut, subst, effSubst);
+      if (!uR.ok) {
+        errors.push({ message: `case .${field} branch '${branch.ctor}': output ${showType(branchOut)} does not unify with ${showType(outputTy)}: ${uR.message}`, sourceId });
+        continue;
+      }
+      subst = uR.subst; effSubst = uR.effSubst;
+      outputTy = applySubst(outputTy, subst, effSubst);
+    }
+
+    typedBranches.push({ ctor: branch.ctor, rawPayloadTy: piTy, payloadTy: branchInputTy, handler: typedHandler });
+  }
+
+  if (errors.length > 0) return fail(errors);
+  if (outputTy === null) return typeError(`case .${field}: no branches`, sourceId);
+
+  const finalOutput = applySubst(outputTy, subst, effSubst);
+  const finalContextTy = applySubst(contextTy, subst, effSubst);
+  const finalBranches = typedBranches.map((b) => ({
+    ctor:         b.ctor,
+    rawPayloadTy: applySubst(b.rawPayloadTy, subst, effSubst),
+    payloadTy:    applySubst(b.payloadTy, subst, effSubst),
+    handler:      substTypedHandler(b.handler, subst, effSubst),
+  }));
+
+  return ok(makeStep(
+    { tag: "CaseField", field, contextTy: finalContextTy, branches: finalBranches },
+    { input: inputTy, output: finalOutput, eff: overallEff },
+    sourceId,
+  ));
+}
+
+function checkCaseFieldHandler(
+  handler: Handler,
+  branchInputTy: Type,
+  contextTy: Type,
+  env: CheckEnv,
+  sourceId: SourceNodeId,
+): TypeResult<{ typedHandler: TypedHandler; outputTy: Type; eff: ConcreteEffect }> {
+  // ρ fields are always auto-available in branch handlers (spec §10a)
+  const rhoEntries = contextTy.tag === "Record"
+    ? contextTy.fields.map((f) => ({ name: f.name, ty: f.ty }))
+    : [];
+
+  if (handler.tag === "NullaryHandler") {
+    // Branch input type = ρ; Γ_local auto-populated from ρ fields
+    const handlerEnv = withLocals(env, extendLocalMany(emptyLocal, rhoEntries), branchInputTy);
+    const bodyR = checkExpr(handler.body, branchInputTy, handlerEnv);
+    if (!bodyR.ok) return bodyR;
+    return ok({ typedHandler: { tag: "Nullary", body: bodyR.value }, outputTy: bodyR.value.morphTy.output, eff: bodyR.value.morphTy.eff });
+  }
+
+  // Record handler: { binders } >>> body with branchInputTy = merge(Pi, ρ)
+  if (branchInputTy.tag !== "Record") {
+    return typeError(`case .field: record handler expects a record branch input, got ${showType(branchInputTy)}`, handler.meta.id);
+  }
+  const payloadFields = new Map(branchInputTy.fields.map((f) => [f.name, f.ty]));
+
+  const typedBinders: TypedBinder[] = [];
+  const errors: TypeError[] = [];
+  const piEntries: { name: string; ty: Type }[] = [];
+
+  for (const binder of handler.binders) {
+    const fieldTy = payloadFields.get(binder.name);
+    if (fieldTy === undefined) {
+      errors.push({ message: `Field '${binder.name}' not found in branch input type ${showType(branchInputTy)}`, sourceId: handler.meta.id });
+      continue;
+    }
+    if (binder.tag === "Bind") {
+      typedBinders.push({ name: binder.name, fieldTy });
+      piEntries.push({ name: binder.name, ty: fieldTy });
+    }
+  }
+  if (errors.length > 0) return fail(errors);
+
+  // Γ_local = Pi binders ∪ all ρ fields
+  const handlerEnv = withLocals(env, extendLocalMany(emptyLocal, [...piEntries, ...rhoEntries]), branchInputTy);
+  const bodyR = checkExpr(handler.body, branchInputTy, handlerEnv);
+  if (!bodyR.ok) return bodyR;
+
+  return ok({
+    typedHandler: { tag: "Record", binders: typedBinders, body: bodyR.value },
+    outputTy: bodyR.value.morphTy.output,
+    eff: bodyR.value.morphTy.eff,
+  });
+}
+
 function checkHandler(
   handler: Handler, payloadTy: Type, env: CheckEnv, sourceId: SourceNodeId,
 ): TypeResult<{ typedHandler: TypedHandler; outputTy: Type; eff: ConcreteEffect }> {
@@ -1126,7 +1302,11 @@ function collectFreeLocalNames(expr: Expr, locals: LocalEnv): string[] {
   const visitStep = (step: Step) => {
     if (step.tag === "Name" && locals.has(step.name)) found.add(step.name);
     if (step.tag === "Build")   step.fields.forEach((f) => visitExpr(f.expr));
-    if (step.tag === "Fanout")  step.fields.forEach((f) => { if (f.tag === "Field") visitExpr(f.expr); });
+    if (step.tag === "Fanout")  step.fields.forEach((f) => {
+      if (f.tag === "Field") visitExpr(f.expr);
+      // Shorthand `name` in fanout is sugar for `name: name` — it references a local
+      else if (locals.has(f.name)) found.add(f.name);
+    });
     if (step.tag === "Let")     { visitExpr(step.rhs); visitExpr(step.body); }
     if (step.tag === "Over")    visitStep(step.transform);
     if (step.tag === "Case" || step.tag === "Fold")
@@ -1151,10 +1331,11 @@ function countLocalUses(name: string, expr: TypedExpr): number {
     switch (node.tag) {
       case "Build":   node.fields.forEach((f) => visitTypedExpr(f.expr)); break;
       case "Fanout":  node.fields.forEach((f) => visitTypedExpr(f.expr)); break;
-      case "Case":    node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
-      case "Fold":    node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
-      case "Over":    visitStep(node.transform); break;
-      case "Let":     visitTypedExpr(node.rhs); visitTypedExpr(node.body); break;
+      case "Case":      node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
+      case "CaseField": node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
+      case "Fold":      node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
+      case "Over":      visitStep(node.transform); break;
+      case "Let":       visitTypedExpr(node.rhs); visitTypedExpr(node.body); break;
       case "SchemaInst": [...node.argSubst.values()].forEach(visitTypedExpr); break;
       default: break;
     }
@@ -1404,6 +1585,18 @@ function substTypedNode(node: TypedNode, subst: Subst, effSubst: EffSubst): Type
       return {
         tag: "Case",
         branches: node.branches.map((b) => ({
+          ctor:         b.ctor,
+          rawPayloadTy: applySubst(b.rawPayloadTy, subst, effSubst),
+          payloadTy:    applySubst(b.payloadTy, subst, effSubst),
+          handler:      substTypedHandler(b.handler, subst, effSubst),
+        })),
+      };
+    case "CaseField":
+      return {
+        tag:       "CaseField",
+        field:     node.field,
+        contextTy: applySubst(node.contextTy, subst, effSubst),
+        branches:  node.branches.map((b) => ({
           ctor:         b.ctor,
           rawPayloadTy: applySubst(b.rawPayloadTy, subst, effSubst),
           payloadTy:    applySubst(b.payloadTy, subst, effSubst),

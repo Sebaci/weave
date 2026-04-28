@@ -1,0 +1,22 @@
+module Examples.CaseField
+
+-- case .field: field-focused coproduct eliminator.
+-- The discriminant field is removed; branch handlers receive the remaining context.
+
+type Shape =
+  | Circle { radius: Int }
+  | Rect   { width: Int, height: Int }
+
+type Result =
+  | Ok  { value: Int }
+  | Err { code: Int }
+
+-- Demonstrate case .field: branch on a record field while keeping surrounding context.
+-- Input:  { result: Result, label: Text }
+-- Ok  branch: receives { value: Int, label: Text }  (payload merged with context)
+-- Err branch: receives { code: Int,  label: Text }  (payload merged with context)
+def handleResult : { result: Result, label: Text } -> Text =
+  case .result {
+    Ok:  { value } >>> label,
+    Err: { code }  >>> label,
+  }

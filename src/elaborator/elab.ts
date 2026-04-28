@@ -310,6 +310,13 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
     }
 
     // -----------------------------------------------------------------------
+    // CaseField — field-focused CaseNode
+    // -----------------------------------------------------------------------
+    case "CaseField": {
+      return elabCaseField(step as TypedStep & { node: { tag: "CaseField" } }, inputPortId, ctx, srcId);
+    }
+
+    // -----------------------------------------------------------------------
     // Fold — CataNode
     // -----------------------------------------------------------------------
     case "Fold": {
@@ -531,6 +538,143 @@ function elabCase(
   };
   builder.addNode(node);
   return outPort.id;
+}
+
+// ---------------------------------------------------------------------------
+// CaseField elaboration
+// ---------------------------------------------------------------------------
+
+function elabCaseField(
+  step: TypedStep & { node: { tag: "CaseField" } },
+  inputPortId: PortId,
+  ctx: ElabContext,
+  srcId: SourceNodeId,
+): PortId {
+  const { builder } = ctx;
+  const { field, contextTy } = step.node;
+  const inPort  = mkPort(step.morphTy.input);
+  const outPort = mkPort(step.morphTy.output);
+  builder.wire(inputPortId, inPort.id);
+
+  // variantTy is the type of the discriminant field (Σ)
+  const inputRec = step.morphTy.input;
+  const variantTy = inputRec.tag === "Record"
+    ? (inputRec.fields.find((f) => f.name === field)?.ty ?? step.morphTy.input)
+    : step.morphTy.input;
+
+  const branches = step.node.branches.map((b) => ({
+    tag:   b.ctor,
+    graph: elabCaseFieldBranchHandler(b, contextTy, step.morphTy.output, ctx, srcId),
+  }));
+
+  let eff: ConcreteEffect = "pure";
+  for (const b of branches) eff = effectJoin(eff, b.graph.effect);
+
+  const node: CaseNode = {
+    kind: "case",
+    id: freshNodeId(), effect: eff,
+    input: inPort, output: outPort,
+    variantTy,
+    outTy:     step.morphTy.output,
+    branches,
+    field,
+    contextTy,
+    provenance: [prov(srcId)],
+  };
+  builder.addNode(node);
+  return outPort.id;
+}
+
+/**
+ * Elaborate a branch handler for `case .field`.
+ * Branch input type (branch.payloadTy) is ρ (nullary) or merge(Pi, ρ) (record-payload).
+ * All ρ fields are projected into locals automatically; Pi binder fields are also projected.
+ */
+function elabCaseFieldBranchHandler(
+  branch: TypedBranch,
+  contextTy: Type,
+  outputTy: Type,
+  ctx: ElabContext,
+  srcId: SourceNodeId,
+): Graph {
+  const handler      = branch.handler;
+  const branchBuilder = new GraphBuilder();
+  const inPort = mkPort(branch.payloadTy);
+
+  // Collect all fields to project into locals:
+  // NullaryHandler: all ρ fields (payloadTy = ρ = contextTy)
+  // RecordHandler:  explicit Pi binders + all ρ fields
+  type FieldBind = { name: string; ty: Type };
+  let allBinders: FieldBind[];
+
+  const rhoFields: FieldBind[] = contextTy.tag === "Record"
+    ? contextTy.fields.map((f) => ({ name: f.name, ty: f.ty }))
+    : [];
+
+  if (handler.tag === "Nullary") {
+    allBinders = rhoFields;
+  } else {
+    const piBinders: FieldBind[] = handler.binders.map((b) => ({ name: b.name, ty: b.fieldTy }));
+    allBinders = [...piBinders, ...rhoFields];
+  }
+
+  const useCounts = countUsesInTypedExpr(handler.body, allBinders.map((b) => b.name));
+  const locals    = new Map<string, PortId[]>();
+
+  if (allBinders.length > 1) {
+    const dupOuts = Array.from({ length: allBinders.length }, () => mkPort(branch.payloadTy));
+    const dupNode: DupNode = {
+      kind: "dup",
+      id: freshNodeId(), effect: "pure",
+      input: inPort, outputs: dupOuts,
+      provenance: [prov(srcId, "dup-for-handler-binders")],
+    };
+    branchBuilder.addNode(dupNode);
+
+    for (let i = 0; i < allBinders.length; i++) {
+      const binder  = allBinders[i]!;
+      const projIn  = mkPort(branch.payloadTy);
+      branchBuilder.wire(dupOuts[i]!.id, projIn.id);
+      const projOut = mkPort(binder.ty);
+      const projNode: ProjNode = {
+        kind: "proj", field: binder.name,
+        id: freshNodeId(), effect: "pure",
+        input: projIn, output: projOut,
+        provenance: [prov(srcId, "handler-proj")],
+      };
+      branchBuilder.addNode(projNode);
+      locals.set(binder.name, allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId));
+    }
+  } else if (allBinders.length === 1) {
+    const binder  = allBinders[0]!;
+    const projOut = mkPort(binder.ty);
+    const projNode: ProjNode = {
+      kind: "proj", field: binder.name,
+      id: freshNodeId(), effect: "pure",
+      input: inPort, output: projOut,
+      provenance: [prov(srcId, "handler-proj")],
+    };
+    branchBuilder.addNode(projNode);
+    locals.set(binder.name, allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId));
+  }
+  // allBinders.length === 0: empty context row; body uses no locals from ρ
+
+  const branchCtx: ElabContext = {
+    ...ctx,
+    builder:    branchBuilder,
+    inputPort:  inPort.id,
+    inputType:  branch.payloadTy,
+    locals,
+    paramPorts: new Map(),
+    sourceId:   srcId,
+  };
+
+  const outPortId = elabExpr(handler.body, inPort.id, branchCtx);
+  const outPort   = mkPort(outputTy);
+  branchBuilder.wire(outPortId, outPort.id);
+  const g = branchBuilder.build(inPort, outPort, [prov(srcId, "branch-handler")]);
+  validateOrThrow(g, srcId);
+  return g;
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,10 +1159,11 @@ function countUsesInTypedExpr(expr: TypedExpr, names: string[]): Map<string, num
     switch (node.tag) {
       case "Build":   node.fields.forEach((f) => visitExpr(f.expr)); break;
       case "Fanout":  node.fields.forEach((f) => visitExpr(f.expr)); break;
-      case "Case":    node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "Fold":    node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "Over":    visitStep(node.transform); break;
-      case "Let":     visitExpr(node.rhs); visitExpr(node.body); break;
+      case "Case":      node.branches.forEach((b) => visitHandler(b.handler)); break;
+      case "CaseField": node.branches.forEach((b) => visitHandler(b.handler)); break;
+      case "Fold":      node.branches.forEach((b) => visitHandler(b.handler)); break;
+      case "Over":      visitStep(node.transform); break;
+      case "Let":       visitExpr(node.rhs); visitExpr(node.body); break;
       case "SchemaInst": [...node.argSubst.values()].forEach(visitExpr); break;
       default: break;
     }
@@ -1046,6 +1191,7 @@ function countParamRefUses(expr: TypedExpr, paramNames: string[]): Map<string, n
       case "Build":      node.fields.forEach((f) => visitExpr(f.expr)); break;
       case "Fanout":     node.fields.forEach((f) => visitExpr(f.expr)); break;
       case "Case":       node.branches.forEach((b) => visitHandler(b.handler)); break;
+      case "CaseField":  node.branches.forEach((b) => visitHandler(b.handler)); break;
       case "Fold":       node.branches.forEach((b) => visitHandler(b.handler)); break;
       case "Over":       visitStep(node.transform); break;
       case "Let":        visitExpr(node.rhs); visitExpr(node.body); break;
@@ -1135,6 +1281,13 @@ function substTypedNode(
       return { tag: "Fanout", fields: node.fields.map((f) => ({ name: f.name, expr: sub(f.expr) })) };
     case "Case":
       return { tag: "Case", branches: node.branches.map((b) => substBranch(b, tySubst, effSubst)) };
+    case "CaseField":
+      return {
+        tag:       "CaseField",
+        field:     node.field,
+        contextTy: subT(node.contextTy),
+        branches:  node.branches.map((b) => substBranch(b, tySubst, effSubst)),
+      };
     case "Fold":
       return {
         tag: "Fold",

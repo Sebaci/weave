@@ -138,6 +138,14 @@ export type TypedNode =
   | { tag: "Case";       branches: TypedBranch[] }
 
   /**
+   * Field-focused coproduct eliminator: case .field { ... }.
+   * Input type: { field: Σ | contextTy }. Each branch input type is
+   * merge(Pi, contextTy) for record-payload constructors, or contextTy for nullary.
+   * Elaborates to CaseNode with field and contextTy set.
+   */
+  | { tag: "CaseField";  field: string; contextTy: Type; branches: TypedBranch[] }
+
+  /**
    * Catamorphism. Branch input types are Pi[carrierTy/adtTy] (substituted).
    * Elaborates to CataNode.
    */

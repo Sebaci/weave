@@ -1,0 +1,19 @@
+module Examples.Filter
+
+type List a =
+  | Nil
+  | Cons { head: a, tail: List a }
+
+-- filter: keep elements satisfying a predicate.
+-- Uses let to name the predicate result, then case .passed to branch
+-- while keeping head and tail in scope without explicit fanout threading.
+def filter (pred : a -> Bool ! pure) : List a -> List a ! pure =
+  fold {
+    Nil:  Nil,
+    Cons: { head, tail } >>>
+      let passed = head >>> pred in
+      case .passed {
+        True:  fanout { head, tail } >>> Cons,
+        False: tail,
+      },
+  }
