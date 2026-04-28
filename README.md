@@ -100,6 +100,8 @@ Parse → Typecheck → Elaborate → Graph IR → Interpret
 docs/
   └── spec/          # language specification (v1)
 
+examples/            # runnable Weave programs (weave run examples/sum.weave)
+
 src/
   ├── parser/        # surface syntax → AST
   ├── surface/       # AST definitions & surface-level structures
@@ -107,7 +109,8 @@ src/
   ├── elaborator/    # AST → graph IR (core semantics)
   ├── ir/            # graph IR definitions
   ├── interpreter/   # execution of graph IR
-  └── types/         # shared type representations
+  ├── types/         # shared type representations
+  └── cli/           # command-line interface (weave run, check, etc.)
 ```
 
 This structure mirrors the language architecture:
@@ -117,6 +120,7 @@ This structure mirrors the language architecture:
 * **elaborator** → semantics (key phase)
 * **ir** → canonical representation
 * **interpreter** → execution
+* **cli** → user-facing tooling (built on top of the compiler core)
 
 ---
 
@@ -151,13 +155,17 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage:
+Current stage: **v0.1.9** — core language implemented and usable via CLI.
 
 * ✅ Language specification (v1)
-* ✅ Surface syntax
-* ✅ Elaboration rules
-* ✅ Graph IR design
-* 🚧 TypeScript implementation in progress
+* ✅ Surface syntax & parser
+* ✅ Typechecker (unification, effect checking)
+* ✅ Elaboration rules & elaborator (typed AST → Graph IR)
+* ✅ Graph IR
+* ✅ Interpreter (graph IR evaluation)
+* ✅ CLI (`weave run`, `weave check`, `weave ir`)
+* ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order)
+* 🚧 Module system, editor tooling, optimization — not yet started
 
 ---
 

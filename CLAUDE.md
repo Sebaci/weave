@@ -180,6 +180,7 @@ If a change touches many parts of the system, it must be split.
 ### Commits
 
 Commit freely during development. Use conventional commits (`feat:`, `fix:`, `chore:`, `test:`).
+Keep commit messages short — one line, under ~72 characters. The subject line is not a changelog; save detail for the CHANGELOG entry.
 Commits do **not** automatically trigger a version bump.
 
 ### Version bumps
