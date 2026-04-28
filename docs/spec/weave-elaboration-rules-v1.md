@@ -35,6 +35,7 @@ core morphism term. The correspondence is:
 | `fanout { ... }` | `dup_n >>> (f1 *** ... *** fn)` |
 | `let x = e in body` | `dup_n >>> (f_x *** passthroughs) >>> body'`  (n = \|L\|+1, see §9) |
 | `case { ... }` | `caseof { Tag1: h1, ..., Tagn: hn }` |
+| `case .k { ... }` | `CaseNode(field=k, contextTy=ρ)` with branch input `merge(Pi, ρ)` |
 | `fold { ... }` | `cata(caseof { Tag1: h1, ..., Tagn: hn })` |
 | `over .f t` | `⟨.f >>> t', id_ρ⟩` |
 | `perform op` | `effect_node(op)` |
@@ -846,6 +847,164 @@ Effect: `effect(fetchResult) ⊔ effect(formatUser) ⊔ effect(formatError)`
 
 ---
 
+## 10a. `case .field` — Field-Focused Coproduct Elimination
+
+### Surface Form
+
+```weave
+case .k {
+  Tag1: handler1,
+  Tag2: { f1, f2 } >>> handler2,
+  ...
+  Tagn: handlern,
+}
+```
+
+`case .field` is a distinct construct from `case`. It has a different typing rule,
+different branch input types, and different elaboration. It is not sugar for plain
+`case` — it is a field-focused coproduct eliminator that preserves the surrounding
+record context.
+
+### Input and Output Types
+
+```
+Input type:  R = { k: Σ | ρ }   where ρ = R \ {k}
+             Σ = Tag1(P1) | ... | Tagn(Pn)   (closed variant; exhaustive)
+Output type: A   (all branch handlers must unify to A)
+```
+
+`A` is concrete. `case .field` never produces an implicit union.
+
+### Context Row
+
+`ρ = R \ {k}` is the **context row** — the input record with the discriminant
+field `k` removed. `ρ` is computed from `currentInputType` by field set
+subtraction. Since the IR operates on fully concrete types, this is always a
+structural operation with no row variables.
+
+### Branch Input Types
+
+**Nullary constructor `Tag_i`** (no payload):
+```
+branch input type = ρ
+```
+
+**Record-payload constructor `Tag_i` with payload `Pi`**:
+```
+branch input type = merge(Pi, ρ)
+```
+
+`merge(Pi, ρ)` is the record type with all fields from both `Pi` and `ρ`.
+**Precondition:** `fields(Pi) ∩ fields(ρ) = ∅`. A field name collision between
+`Pi` and `ρ` is a **call-site type error**. This is checked after `k` has been
+removed from `R` (so `k` itself cannot collide with payload fields).
+
+Field `k` is not present in any branch input type. It has been eliminated.
+
+### Branch Elaboration
+
+Handler context discipline (P4) applies, with the branch input type set to
+`ρ` or `merge(Pi, ρ)` respectively. Outer `Γ_local` entries have domain `R`;
+inside the branch the input type is `ρ` or `merge(Pi, ρ)`, so outer entries
+are ill-typed there and rejected by the type system.
+
+**Nullary `Tag_i`:**
+`Γ_local^i` is populated from `ρ`:
+```
+Γ_local^i = { fj ↦ (.fj : ρ -> Cj ! pure) | fj ∈ ρ }
+```
+Handler body elaborated under `(Γ_global, Γ_local^i)`.
+Result: `hi : ρ -> A`
+
+**Record-payload `Tag_i` with `{ f1, ..., fm } >>>`:**
+```
+Γ_local^i = { fj ↦ (.fj : merge(Pi, ρ) -> Aj ! pure) | fj ∈ Pi, fj not wildcarded }
+           ∪ { fj ↦ (.fj : merge(Pi, ρ) -> Cj ! pure) | fj ∈ ρ }
+```
+Handler body elaborated under `(Γ_global, Γ_local^i)`.
+Result: `hi : merge(Pi, ρ) -> A`
+
+### Core Form
+
+```
+CaseNode(field=k, variantTy=Σ, contextTy=ρ,
+         branches=[{ tag: Tag_i, graph: hi }])
+: R -> A
+```
+
+This is a `CaseNode` with `field` and `contextTy` set (see IR spec §5). The
+distribution of `ρ` into branch inputs is a semantic property of this node;
+it is not represented as explicit graph structure. The internal projection `.k`
+for discrimination and the merge of payload with `ρ` are handled by the node's
+interpreter semantics, analogous to how `CataNode` handles recursive traversal.
+
+### Effect Rule
+
+```
+effect(case .k { Tag1: h1, ..., Tagn: hn }) = effect(h1) ⊔ ... ⊔ effect(hn)
+```
+
+Static upper bound. All branches contribute even though only one executes at
+runtime (P2). `case .field` introduces no effects — the projection `.k` is pure,
+the merge of payload with `ρ` is structural.
+
+### Full Pipeline Elaboration
+
+```
+elab(expr) >>> CaseNode(field=k, contextTy=ρ, branches=[...])
+Effect: effect(expr) ⊔ effect(h1) ⊔ ... ⊔ effect(hn)
+```
+
+### Stress Test — `filter`
+
+```weave
+Cons: { head, tail } >>>
+  let passed = head >>> pred in
+  case .passed {
+    True:  fanout { head, tail } >>> Cons,
+    False: tail,
+  }
+```
+
+**After `{ head, tail } >>>`:**
+`Γ_local = { head ↦ .head, tail ↦ .tail }`, input type `I = { head: a, tail: List a }`
+
+**After `let passed = head >>> pred in`:**
+Live set: `L = { head, tail }` (both free in `case .passed` body)
+Intermediate type: `R' = { passed: Bool, head: a, tail: List a }`
+`Γ_local' = { passed ↦ .passed, head ↦ .head, tail ↦ .tail }` (projections from `R'`)
+
+**`case .passed { ... }`:**
+`R = R'`, `k = passed`, `Σ = Bool = True | False`
+`ρ = R' \ {passed} = { head: a, tail: List a }`
+
+`True` branch (nullary): branch input type = `ρ = { head: a, tail: List a }`
+`Γ_local^True = { head ↦ .head, tail ↦ .tail }` (projections from `ρ`)
+Handler `fanout { head, tail } >>> Cons` elaborates as:
+`dup_2 >>> (.head *** .tail) >>> Cons : ρ -> List a`
+
+`False` branch (nullary): branch input type = `ρ = { head: a, tail: List a }`
+`Γ_local^False = { head ↦ .head, tail ↦ .tail }`
+Handler `tail` elaborates as: `.tail : ρ -> List a`
+
+Standalone `case .passed` morphism:
+```
+CaseNode(field=passed, contextTy={ head: a, tail: List a },
+         branches=[{ True: h_True }, { False: h_False }])
+: { passed: Bool, head: a, tail: List a } -> List a
+```
+
+Full elaborated `Cons` branch (from fold algebra):
+```
+dup_2 >>> ((.head >>> pred) *** .head *** .tail)  -- let elaboration
+>>> CaseNode(field=passed, ...)
+: { head: a, tail: List a } -> List a ! pure
+```
+
+Effect: `pure` (pred is `! pure` by signature; all branch handlers pure)
+
+---
+
 ## 11. `fold` — Catamorphism
 
 ### Surface Form
@@ -1229,10 +1388,13 @@ the recursion. The recursive traversal is performed at runtime by `cata`,
 not constructed by elaboration.
 
 **GI-9 — Handler context discipline.**
-Constructs with sub-expression handlers (`case`, `fold`, `over`) elaborate
-those handlers with the handler's own input type, not the outer pipeline
-input. Outer `Γ_local` entries are ill-typed in handler contexts and unusable
-there.
+Constructs with sub-expression handlers (`case`, `case .field`, `fold`, `over`)
+elaborate those handlers with the handler's own input type, not the outer pipeline
+input. Outer `Γ_local` entries are ill-typed in handler contexts and unusable there.
+For `case .field`, branch handler input types are `ρ` (nullary constructors) or
+`merge(Pi, ρ)` (payload constructors), where `ρ = R \ {k}` is the context row. `Γ_local`
+for each branch is populated from the branch input type, giving handlers access to both
+payload fields and surrounding context fields without any closure or environment capture.
 
 **GI-10 — Elaboration is finite.**
 Every surface program elaborates to a finite core morphism term. There is no

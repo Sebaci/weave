@@ -16,6 +16,7 @@ Weave is a typed, composition-first language grounded in symmetric monoidal cate
 | `over`      | Transform specific fields of a record |
 | `case`      | Coproduct eliminator / branching |
 | `fold`      | Structural recursion over an ADT (catamorphism) |
+| `case .field` | Eliminate a variant field from a record while exposing surrounding context |
 | `perform`   | Explicit effect invocation |
 | `let`       | Binding |
 
@@ -41,7 +42,7 @@ These invariants hold across the entire v1 language. They are not local properti
 
 2. **Unit as implicit input.** Surface expressions with no explicit input (e.g. `build { ... }`) denote morphisms from the unit object `1`. Surface syntax elides this input; the core calculus makes it explicit.
 
-3. **Closed construction, open consumption.** Record and variant construction forms (`build`, `fanout`, variant constructors) produce closed types at the construction site. Consumption forms (`over`, projections, `case`) may be row-polymorphic. Open/extensible production is a v2 extension.
+3. **Closed construction, open consumption.** Record and variant construction forms (`build`, `fanout`, variant constructors) produce closed types at the construction site. Consumption forms (`over`, projections, `case`, `case .field`) may be row-polymorphic. `case .field` is a consumption-site construct and is row-polymorphic in the context row `ρ` — it eliminates the named field and exposes the remainder to branch handlers. Open/extensible production is a v2 extension.
 
 4. **Effect level is a static upper bound.** Effect classification is computed conservatively from subexpressions and branch handlers. It reflects the maximum observable effect of a construct, not the dynamically taken path. A `case` with one `sequential` branch is statically `sequential`, even though only one branch executes at runtime.
 
@@ -83,7 +84,70 @@ fetchResult >>> case {
 
 Both branches must unify to a common output type. If `Ok` and `Error` branches produce different record shapes, they should be wrapped in a new tagged union explicitly.
 
-### `fold`
+### `case .field`
+
+`case .field` is a field-focused coproduct eliminator. It eliminates a variant-typed field from a record while exposing the surrounding record context to each branch handler. It is distinct from `case`: plain `case` has type `Σ -> A`; `case .field` has type `{ k: Σ | ρ } -> A`.
+
+**Semantics — eliminate then extend.** `case .k` first removes field `k` from the input record, producing the context row `ρ = R \ {k}`. It then matches on the value of `k` and merges the constructor payload into `ρ` to form the branch handler's input:
+
+- **Nullary constructor `Tag_i`** (no payload): branch handler input type is `ρ`.
+- **Record-payload constructor `Tag_i { f1: A1, ... }`**: branch handler input type is `merge(Pi, ρ)`, where `Pi = { f1: A1, ... }`. The field sets of `Pi` and `ρ` must be disjoint; a collision is a call-site type error.
+
+Field `k` is not available inside any branch. Branches operate on `ρ` or `merge(Pi, ρ)` only. If the branch needs the value of `k`, it must be reintroduced explicitly before entering `case .k`.
+
+**Typing rule:**
+
+```
+R = { k: Σ | ρ }    ρ = R \ {k}    Σ = Tag_i Pi
+∀i. Γ ⊢ h_i : merge(Pi, ρ) -> A ! ε_i    (h_i : ρ -> A when Pi = Unit)
+fields(Pi) ∩ fields(ρ) = ∅   for all i
+---------------------------------------------------------------------------
+Γ ⊢ case .k { Tag_i: h_i } : R -> A ! (⊔_i ε_i)
+```
+
+**Effect rule:**
+
+```
+effect(case .k { Tag_i: h_i }) = ⊔_i effect(h_i)
+```
+
+`case .field` introduces no effects of its own. All effects come from branch handlers. The static upper bound is the join of all branch effects, even though only one branch executes at runtime.
+
+**`case .field` is a first-class morphism.** Like `case` and `fold`, it may appear as the body of a named `def`, as an inline step in a pipeline, or as a higher-order argument:
+
+```
+def handleResult : { status: Status | ρ } -> Output ! sequential =
+  case .status {
+    Ok:    { value } >>> format,
+    Error: { message } >>> logAndFail,
+  }
+```
+
+**Composition with `let`.** `let` and `case .field` are designed to compose. `let x = compute in case .x { ... }` introduces a derived field `x` into the current product context; `case .x` then eliminates it, giving each branch access to the surrounding structure. The `let` elaboration's live set computation threads surrounding fields through automatically — no explicit `fanout` is required:
+
+```
+{ head, tail } >>>
+  let passed = head >>> pred in
+  case .passed {
+    True:  fanout { head, tail } >>> Cons,
+    False: tail,
+  }
+```
+
+Here `head` and `tail` appear in the live set of the `case .passed` body and are therefore present in the branch handler input type without any explicit threading.
+
+**`fold .field` does not exist.** The field-selector form is defined only for `case`. `fold` operates on a complete recursive ADT and performs carrier substitution throughout that ADT's recursive structure. There is no `fold .field` form in v1. To fold a recursive field inside a record, project that field, apply `fold`, and reconstruct any surrounding context explicitly.
+
+**Symmetry with `over`.** `case .field` is dual to `over .field` at the product level:
+
+| Construct      | Input               | Output              | Role                              |
+|----------------|---------------------|---------------------|-----------------------------------|
+| `over .k f`    | `{ k: A \| ρ }`    | `{ k: B \| ρ }`    | Transform field, preserve shape   |
+| `case .k { }` | `{ k: Σ \| ρ }`    | `A`                 | Eliminate field, expose context   |
+
+Both are row-polymorphic field-focused operators. Both admit only a single field selector — no nested paths (`case .a.b` is a parse error). Nested elimination is expressible via sequencing: `{ outer } >>> outer >>> case .inner { ... }`.
+
+
 
 `fold` is a value-directed catamorphism over an ADT. The ADT is inferred from the input type; an explicit type annotation is required only for disambiguation.
 

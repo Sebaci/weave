@@ -522,13 +522,6 @@ def handleResult : Result e a -> Output ! sequential =
 
 ### `fold` — catamorphism over an ADT
 
-```weave
-fold {
-  NullaryLabel: handler,
-  RecordLabel:  { field1, field2 } >>> handler,
-}
-```
-
 Surface syntax is identical to `case`. The key semantic invariant: in any
 recursive branch, the recursive field arrives as the **already-folded result**
 — the result type `A`, not the raw sub-ADT. The branch handler is an algebra
@@ -543,6 +536,87 @@ xs >>> fold {
 
 Here `tail` is of type `Int` (the result type), not `List Int`. This is what
 makes `fold` a true catamorphism and guarantees termination.
+
+### `case .field` — field-focused coproduct elimination
+
+```weave
+case .k {
+  Tag1: handler1,
+  Tag2: { field1, field2 } >>> handler2,
+}
+```
+
+`case .field` is a field-focused variant of `case`. Where plain `case` has type
+`Σ -> A`, `case .field` has type `{ k: Σ | ρ } -> A`. It eliminates a
+variant-typed field from a record while giving each branch handler access to the
+surrounding record context.
+
+**Semantics — eliminate then extend.** `case .k` first removes field `k` from
+the input record, producing the context row `ρ = R \ {k}`. It then matches on
+the value of `k` and merges the constructor payload into `ρ` to form the branch
+input:
+
+- **Nullary constructor `Tag_i`**: branch handler receives `ρ` (the context row
+  alone; no payload to merge).
+- **Record-payload constructor `Tag_i { f1: A1, ... }`**: branch handler receives
+  `merge(Pi, ρ)`. The field sets of `Pi` and `ρ` must be disjoint; a field name
+  collision is a call-site type error.
+
+Field `k` is not available inside any branch. It has been eliminated. A branch that
+needs the value of `k` must reconstruct it explicitly.
+
+```weave
+-- filter: branch on pred result while preserving head and tail
+Cons: { head, tail } >>>
+  let passed = head >>> pred in
+  case .passed {
+    True:  fanout { head, tail } >>> Cons,
+    False: tail,
+  }
+```
+
+In the `True` and `False` branches, the input type is `{ head: a, tail: List a }` —
+the context row after `passed` has been eliminated. Both `head` and `tail` are
+directly accessible.
+
+**Typing rule:**
+
+```
+R = { k: Σ | ρ }    ρ = R \ {k}    Σ = Tag_i Pi
+∀i.  h_i : merge(Pi, ρ) -> A ! ε_i     (h_i : ρ -> A when Pi = Unit)
+     fields(Pi) ∩ fields(ρ) = ∅
+-------------------------------------------------------------------
+case .k { Tag_i: h_i } : R -> A ! (⊔_i ε_i)
+```
+
+**Effect rule:** `effect(case .k { ... }) = ⊔_i effect(h_i)`. The construct itself
+introduces no effects; all effects come from branch handlers.
+
+**First-class morphism.** Like `case` and `fold`, `case .field` may appear as the
+body of a `def`, as an inline pipeline step, or as a higher-order argument.
+
+**Single field only.** The field selector is a single `.name`. Nested paths
+(`case .a.b`) are not valid in v1. Nested elimination is expressible by sequencing:
+`{ outer } >>> outer >>> case .inner { ... }`.
+
+**Composition with `let`.** `let` and `case .field` are designed to compose
+naturally. `let x = compute in case .x { ... }` introduces a derived field `x` into
+the current product context; `case .x` then eliminates it, giving each branch the
+surrounding structure. The `let` elaboration's live set computation threads
+surrounding fields through automatically — no explicit `fanout` required.
+
+**Symmetry with `over`.** `case .field` is the elimination counterpart to `over .field`:
+
+| Construct      | Input              | Output             | Role                            |
+|----------------|--------------------|--------------------|---------------------------------|
+| `over .k f`    | `{ k: A \| ρ }`   | `{ k: B \| ρ }`   | Transform field, preserve shape |
+| `case .k { }` | `{ k: Σ \| ρ }`   | `A`                | Eliminate field, expose context |
+
+**`fold .field` does not exist.** The field-selector form is defined only for
+`case`. `fold` operates on a complete recursive ADT and performs carrier
+substitution throughout that ADT's recursive structure. There is no `fold .field`
+form in v1. To fold a recursive field inside a record, project that field, apply
+`fold`, and reconstruct any surrounding context explicitly.
 
 ### Trailing commas
 
@@ -679,16 +753,17 @@ def filter (pred : a -> Bool ! pure) : List a -> List a ! pure =
     Nil:  Nil,
     Cons: { head, tail } >>>
       let passed = head >>> pred in
-      passed >>> case {
+      case .passed {
         True:  fanout { head, tail } >>> Cons,
         False: tail,
       },
   }
 ```
 
-Here `passed` is used once; `pred` need not be checked for discardability on
-that account. `head` and `tail` come from the `{ head, tail } >>>` destructor
-and are pure projections — they may be used freely in `fanout`.
+Here `passed` is used once (as the discriminant field eliminated by `case .passed`);
+`pred` need not be checked for discardability on that account. `head` and `tail` come
+from the `{ head, tail } >>>` destructor and are threaded through by `let`'s live set
+computation — they are directly accessible in both branch handlers.
 
 ---
 
@@ -904,7 +979,7 @@ fanoutExpr  ::= "fanout" "{" fanoutField ("," fanoutField)* ","? "}"
 fanoutField ::= name ":" expr
               | name                    -- shorthand: name: name
 
-caseExpr    ::= "case" "{" branch ("," branch)* ","? "}"
+caseExpr    ::= "case" ("." name)? "{" branch ("," branch)* ","? "}"
 foldExpr    ::= "fold" "{" branch ("," branch)* ","? "}"
 branch      ::= CtorName ":" handler
 handler     ::= expr                                  -- nullary constructor
@@ -971,6 +1046,7 @@ programs or implementations:
 | Delimiters | Explicit `{}` everywhere | LLM-friendly, copy-paste safe, no significant whitespace |
 | Trailing commas | Permitted | Diff-friendly, consistent with modern tooling |
 | `case`/`fold` syntax | Identical surface structure | Reduce cognitive load; distinction is type-level only |
+| `case .field` syntax | `case ("." name)? { ... }` | Symmetric with `over .field`; minimal grammar extension; field-qualified form of existing construct; no new keyword |
 | `effect` declarations | Top-level signatures in any module; standard import/namespacing | Keeps type info in source where typechecker can see it; no separate manifest format |
 | `effect` runtime binding | External to the language | v1 has no handler or scope construct; implementation map supplied at program entry |
 | `parallel-safe` semantics | Semantic contract (commutativity); runtime permitted but not required to exploit | Sequential interpreter is valid; annotation enables scheduling optimizations |

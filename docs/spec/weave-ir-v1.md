@@ -251,25 +251,49 @@ record field name in the output type.
 
 ```ts
 type CaseNode = NodeBase & {
-  kind:      "case";
-  input:     Port;
-  output:    Port;
-  variantTy: Type;
-  outTy:     Type;
-  branches:  { tag: string; graph: Graph }[];
-  effect:    Effect;
+  kind:       "case";
+  input:      Port;
+  output:     Port;
+  variantTy:  Type;
+  outTy:      Type;
+  branches:   { tag: string; graph: Graph }[];
+  effect:     Effect;
+  // Field-focused variant (case .field):
+  field?:     string;   // name of the discriminant field; absent for plain case
+  contextTy?: Type;     // ρ = input record type minus field k; absent for plain case
 }
 ```
 
-Represents `caseof { Tag1: h1, ..., Tagn: hn } : Σ -> A`.
+Represents either:
 
-Branch graphs have:
-- Input port typed at the constructor's payload type (or `Unit` for nullary
-  constructors)
-- Output port typed at the shared result type `A`
+- **Plain `case`**: `caseof { Tag1: h1, ..., Tagn: hn } : Σ -> A`.
+  `field` and `contextTy` are absent. `input.ty = Σ`.
+  Branch graphs have input port typed at the constructor payload type `Pi`
+  (or `Unit` for nullary constructors).
 
-Effect is the join of all branch graph effects (static upper bound — all
-branches contribute even though only one executes at runtime).
+- **Field-focused `case .k`**: `CaseNode(field=k, contextTy=ρ) : { k: Σ | ρ } -> A`.
+  `field = k`, `contextTy = ρ = input.ty \ {k}`. `input.ty = { k: Σ | ρ }`.
+  Branch graphs have input port typed at `merge(Pi, ρ)` for payload constructors,
+  or `ρ` for nullary constructors.
+
+**IR invariant (checked):** When `field` is present, each branch graph's input port
+type must be `merge(Pi, contextTy)` for payload constructors, or `contextTy` for
+nullary constructors. This is a checked IR invariant analogous to IR-6 (CataNode
+substituted types).
+
+**Field conflict invariant (checked):** When `field` is present, for each payload
+constructor branch, `fields(Pi) ∩ fields(contextTy)` must be empty. This is
+enforced at elaboration time (call-site type error) and validated at the IR level.
+
+**Interpreter note:** A `CaseNode` with `field` set is a semantic special case. The
+interpreter must internally project `.field` from the input record for discrimination,
+then route to the matching branch with the context row (and merged payload) as the
+branch input. This distribution step is not represented as explicit graph structure.
+This follows the CataNode precedent: both are nodes whose evaluation semantics involve
+internal structure not expressed as dataflow wires.
+
+Effect is the join of all branch graph effects (static upper bound — all branches
+contribute even though only one executes at runtime).
 
 ### CataNode
 
@@ -426,6 +450,12 @@ with a shared non-unit input. They must not be conflated.
 For `CataNode` with ADT `μF` and carrier `A`: each algebra branch graph's
 input port type is `Pi[A/μF]`, not `Pi[μF]`. This is a checked invariant.
 
+**IR-6b — `CaseNode` field-focused branch ports use merged types.**
+For `CaseNode` with `field = k` and `contextTy = ρ`: each branch graph's
+input port type must be `merge(Pi, ρ)` for payload constructor branches, or
+`ρ` for nullary constructor branches. This is a checked invariant. Additionally,
+`fields(Pi) ∩ fields(ρ) = ∅` must hold for all payload constructor branches.
+
 **IR-7 — All port types are fully concrete.**
 No row variables or unresolved effect variables appear in `Port.ty` at IR
 level. These are instantiated away during elaboration.
@@ -502,6 +532,7 @@ surface construct maps to a graph building operation:
 | `{ fields } >>>`   | Extend `locals` with `ProjNode` outputs; no new nodes until consumed |
 | `let x = e in body` | `DupNode` + `TupleNode` (fanout of `f_x` and passthroughs) + extend `locals` |
 | `case { ... }`      | `CaseNode` with branch `Graph` values |
+| `case .k { ... }`   | `CaseNode(field=k, contextTy=ρ)` with branch input types `merge(Pi, ρ)` or `ρ` |
 | `fold { ... }`      | `CataNode` with algebra `Graph` values; apply `Pi[A/μF]` substitution |
 | `over .f t`         | `ProjNode` + transform subgraph + `TupleNode` (pairing with `id_ρ`) |
 | `perform op`        | `EffectNode` |
