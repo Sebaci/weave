@@ -6,6 +6,7 @@ import { elaborateModule } from "../elaborator/index.ts";
 import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
 import { buildSpanMap } from "../surface/span-map.ts";
+import { buildModuleGraph } from "../module/resolver.ts";
 
 // ---------------------------------------------------------------------------
 // Host effect bindings supplied by the CLI runtime
@@ -47,8 +48,23 @@ if (command === "check") {
 // ---------------------------------------------------------------------------
 
 function runCheck(file: string): void {
-  const source = readSource(file);
+  // Resolve and parse the full import graph first.
+  const graphResult = buildModuleGraph(file);
+  if (!graphResult.ok) {
+    for (const err of graphResult.errors) {
+      if (err.tag === "not-found") {
+        console.error(`${err.importedBy}: error: cannot find imported module '${err.filePath}'`);
+      } else if (err.tag === "parse-error") {
+        console.error(`${err.filePath}:${err.line}:${err.column}: error: ${err.message}`);
+      } else {
+        console.error(`error: import cycle detected: ${err.cycle.join(" -> ")}`);
+      }
+    }
+    process.exit(1);
+  }
 
+  // Typecheck each module in the graph (entry file only for now; Step 7 merges envs).
+  const source = readSource(file);
   const parseResult = parseModule(source);
   if (!parseResult.ok) {
     for (const err of parseResult.errors) {
