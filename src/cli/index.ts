@@ -1,12 +1,10 @@
-import { readFileSync } from "node:fs";
-import { parseModule } from "../parser/parse.ts";
-import { checkModule } from "../typechecker/check.ts";
+import { resolve } from "node:path";
 import { showType } from "../typechecker/index.ts";
 import { elaborateModule } from "../elaborator/index.ts";
 import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
-import { buildSpanMap } from "../surface/span-map.ts";
-import { buildModuleGraph } from "../module/resolver.ts";
+import { buildModuleGraph, type ResolverError } from "../module/resolver.ts";
+import { checkAll } from "../module/loader.ts";
 
 // ---------------------------------------------------------------------------
 // Host effect bindings supplied by the CLI runtime
@@ -48,43 +46,19 @@ if (command === "check") {
 // ---------------------------------------------------------------------------
 
 function runCheck(file: string): void {
-  // Resolve and parse the full import graph first.
   const graphResult = buildModuleGraph(file);
   if (!graphResult.ok) {
-    for (const err of graphResult.errors) {
-      if (err.tag === "not-found") {
-        console.error(`${err.importedBy}: error: cannot find imported module '${err.filePath}'`);
-      } else if (err.tag === "parse-error") {
+    reportResolverErrors(graphResult.errors);
+    process.exit(1);
+  }
+
+  const loadResult = checkAll(graphResult.graph, file);
+  if (!loadResult.ok) {
+    for (const err of loadResult.errors) {
+      if (err.line !== undefined && err.column !== undefined) {
         console.error(`${err.filePath}:${err.line}:${err.column}: error: ${err.message}`);
       } else {
-        console.error(`error: import cycle detected: ${err.cycle.join(" -> ")}`);
-      }
-    }
-    process.exit(1);
-  }
-
-  // Typecheck each module in the graph (entry file only for now; Step 7 merges envs).
-  const source = readSource(file);
-  const parseResult = parseModule(source);
-  if (!parseResult.ok) {
-    for (const err of parseResult.errors) {
-      const { line, column } = err.span.start;
-      console.error(`${file}:${line}:${column}: error: ${err.message}`);
-    }
-    process.exit(1);
-  }
-  const mod = parseResult.value;
-  const spanMap = buildSpanMap(mod);
-
-  const checkResult = checkModule(mod);
-  if (!checkResult.ok) {
-    for (const err of checkResult.errors) {
-      const span = err.span ?? spanMap.get(err.sourceId);
-      if (span) {
-        const { line, column } = span.start;
-        console.error(`${file}:${line}:${column}: error: ${err.message}`);
-      } else {
-        console.error(`${file}: error: ${err.message}`);
+        console.error(`${err.filePath}: error: ${err.message}`);
       }
     }
     process.exit(1);
@@ -94,35 +68,29 @@ function runCheck(file: string): void {
 }
 
 function runRun(file: string, defName: string): void {
-  const source = readSource(file);
-
-  // --- Parse ---
-  const parseResult = parseModule(source);
-  if (!parseResult.ok) {
-    for (const err of parseResult.errors) {
-      const { line, column } = err.span.start;
-      console.error(`${file}:${line}:${column}: error: ${err.message}`);
-    }
+  // --- Resolve + Parse + Typecheck (all modules) ---
+  const graphResult = buildModuleGraph(file);
+  if (!graphResult.ok) {
+    reportResolverErrors(graphResult.errors);
     process.exit(1);
   }
-  const mod = parseResult.value;
-  const spanMap = buildSpanMap(mod);
 
-  // --- Typecheck ---
-  const checkResult = checkModule(mod);
-  if (!checkResult.ok) {
-    for (const err of checkResult.errors) {
-      const span = err.span ?? spanMap.get(err.sourceId);
-      if (span) {
-        const { line, column } = span.start;
-        console.error(`${file}:${line}:${column}: error: ${err.message}`);
+  const loadResult = checkAll(graphResult.graph, file);
+  if (!loadResult.ok) {
+    for (const err of loadResult.errors) {
+      if (err.line !== undefined && err.column !== undefined) {
+        console.error(`${err.filePath}:${err.line}:${err.column}: error: ${err.message}`);
       } else {
-        console.error(`${file}: error: ${err.message}`);
+        console.error(`${err.filePath}: error: ${err.message}`);
       }
     }
     process.exit(1);
   }
-  const typedMod = checkResult.value;
+
+  const absFile  = resolve(file);
+  const typedMod = loadResult.modules.get(absFile);
+  if (!typedMod) die(`weave run: internal error: entry module not found after check`);
+  const mod = graphResult.graph.get(absFile)!.mod;
 
   // --- Check def exists and takes Unit input ---
   const typedDef = typedMod.typedDefs.get(defName);
@@ -175,11 +143,15 @@ function runRun(file: string, defName: string): void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function readSource(path: string): string {
-  try {
-    return readFileSync(path, "utf-8");
-  } catch (e) {
-    die(`weave: ${path}: ${(e as NodeJS.ErrnoException).message}`);
+function reportResolverErrors(errors: ResolverError[]): void {
+  for (const err of errors) {
+    if (err.tag === "not-found") {
+      console.error(`${err.importedBy}: error: cannot find imported module '${err.filePath}'`);
+    } else if (err.tag === "parse-error") {
+      console.error(`${err.filePath}:${err.line}:${err.column}: error: ${err.message}`);
+    } else {
+      console.error(`error: import cycle detected: ${err.cycle.join(" -> ")}`);
+    }
   }
 }
 

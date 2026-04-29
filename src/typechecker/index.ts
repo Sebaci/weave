@@ -1,4 +1,5 @@
 export { checkModule, checkDef, checkExpr, checkStep } from "./check.ts";
+export type { ModuleExports } from "./check.ts";
 export type { TypeError, TypeResult } from "./errors.ts";
 export { ok, fail, typeError, collectResults, mapResult } from "./errors.ts";
 export type { CheckEnv, GlobalEnv, TypeDeclEnv, LocalEnv, DefInfo, CtorInfo, TypeDeclInfo, Omega } from "./env.ts";

@@ -56,9 +56,22 @@ import { ok, fail, typeError, collectResults, mapResult, type TypeResult, type T
 // Module entry point
 // ---------------------------------------------------------------------------
 
-export function checkModule(mod: Module): TypeResult<TypedModule> {
+/**
+ * Symbols exported from a checked module, ready to be seeded into importers.
+ * Defs are keyed by qualified name (e.g. "Foo.Bar.myDef").
+ * Ctors and typeDecls are keyed by bare name (e.g. "Just", "Maybe").
+ * Omega entries are keyed by qualified name (e.g. "Http.get").
+ */
+export type ModuleExports = {
+  defs:      Map<string, DefInfo>;
+  ctors:     Map<string, CtorInfo>;
+  typeDecls: TypeDeclEnv;
+  omega:     Omega;
+};
+
+export function checkModule(mod: Module, seeds?: ModuleExports): TypeResult<TypedModule> {
   // Pass 1: build environments from declarations
-  const pass1 = buildEnv(mod);
+  const pass1 = buildEnv(mod, seeds);
   if (!pass1.ok) return pass1;
   const { env, typedTypeDecls, omega } = pass1.value;
 
@@ -93,13 +106,13 @@ type EnvBuildResult = {
   omega:           Omega;
 };
 
-function buildEnv(mod: Module): TypeResult<EnvBuildResult> {
+function buildEnv(mod: Module, seeds?: ModuleExports): TypeResult<EnvBuildResult> {
   const errors: TypeError[] = [];
-  const typeDecls: TypeDeclEnv = new Map();
-  const typedTypeDecls = new Map<string, TypedTypeDecl>();
-  const omega: Omega = new Map();
-  const defs = new Map<string, DefInfo>();
-  const ctors = new Map<string, CtorInfo>();
+  const typeDecls: TypeDeclEnv              = new Map(seeds?.typeDecls);
+  const typedTypeDecls                      = new Map<string, TypedTypeDecl>();
+  const omega: Omega                        = new Map(seeds?.omega);
+  const defs: Map<string, DefInfo>          = new Map(seeds?.defs);
+  const ctors: Map<string, CtorInfo>        = new Map(seeds?.ctors);
 
   // --- Collect type declarations ---
   // Pre-scan: register stub entries so self-referential (and mutually
