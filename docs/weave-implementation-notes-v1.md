@@ -628,6 +628,56 @@ inaccessible in handler contexts). The `let.weave` example demonstrates `let` wi
 a pattern that is actually valid: naming an intermediate computation inside a fold
 branch body that doesn't involve a nested case dispatch.
 
+---
+
+## 10. Module System (`src/module/`)
+
+### 10.1 Search root is the directory of the entry file
+
+`import Foo.Bar` resolves to `<entry-dir>/Foo/Bar.weave`. The root is always the
+directory containing the file passed to `weave check` / `weave run` — not a
+project root or configuration file. This is the simplest convention; a
+project-level root can be added later without changing the module graph API.
+
+### 10.2 Module graph is built before typechecking begins
+
+`buildModuleGraph` (resolver) does a full DFS over the import closure: reads,
+parses, and deduplications every file before any typechecking starts. The
+`ModuleGraph` it returns is an immutable value consumed by `checkAll`. This
+cleanly separates "can I find and parse all files?" from "do they typecheck?".
+
+### 10.3 Defs are seeded under both bare name and qualified name
+
+`extractExports` seeds each def under two keys: the bare name (e.g. `origin`)
+for unqualified references in importing source, and the qualified name
+(e.g. `Shapes.origin`) for future qualified-access resolution (Step 8).
+In both cases `DefInfo.name` is set to the **qualified** name. This means
+`TypedNode.Ref { defId: "Shapes.origin" }` appears in the typed AST for a bare
+reference to `origin` from `Shapes`. The elaborator must handle qualified def IDs
+when multi-module elaboration is implemented (Step 9).
+
+### 10.4 Ctors and typeDecls are seeded under bare names only
+
+Surface syntax for constructors (`Just`, `Cons`, etc.) and type names (`Maybe`,
+`List`) is always unqualified in v1. Seeding them under bare names is therefore
+sufficient and correct for type checking. Qualified constructor/type access is
+post-v1.
+
+### 10.5 Bare-name conflicts are hard errors; qualified names merge silently
+
+`mergeExports` detects duplicate bare-name keys for defs, ctors, and typeDecls
+and reports each as an ambiguity error. The first-seen binding is kept; the
+conflicting one is dropped. Qualified names (containing `.`) are assumed globally
+unique by construction (they embed the module path) and are merged without checks.
+Omega entries are also merged silently since they are already qualified.
+
+### 10.6 A failed import is not seeded into its dependents
+
+If a module fails typechecking, it is not added to the `checked` map in `checkAll`.
+Modules that import it proceed without any seeds from it, producing "Unknown name"
+or "Unknown type" errors rather than propagated type errors from the broken import.
+This avoids cascading confusion at the cost of some redundant diagnostics.
+
 ### 9.17 Effect variables in def params are not supported in v1
 
 `resolveEffLevelFinal` previously silently converted any unresolved `EffVar`

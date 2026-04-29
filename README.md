@@ -94,32 +94,57 @@ Parse → Typecheck → Elaborate → Graph IR → Interpret
 
 ---
 
+## 💻 Usage
+
+```bash
+npm run cli -- check <file>             # parse + typecheck (all imported modules)
+npm run cli -- run   <file> --def <name> # full pipeline, Unit-input defs only
+```
+
+Example:
+
+```bash
+npm run cli -- check examples/hello.weave
+npm run cli -- run   examples/build.weave --def origin
+```
+
+Multi-module programs work as long as imported files are resolvable relative to the entry file:
+
+```bash
+npm run cli -- check examples/main.weave   # resolves import Foo.Bar → examples/Foo/Bar.weave
+```
+
+---
+
 ## 📁 Repository Structure
 
 ```text
 docs/
-  └── spec/          # language specification (v1)
+  ├── spec/          # language specification (v1)
+  └── weave-implementation-notes-v1.md  # canonical decisions not in the spec
 
-examples/            # runnable Weave programs (weave run examples/sum.weave)
+examples/            # runnable Weave programs
 
 src/
   ├── parser/        # surface syntax → AST
   ├── surface/       # AST definitions & surface-level structures
-  ├── typechecker/   # typing rules, inference, effect checking
-  ├── elaborator/    # AST → graph IR (core semantics)
-  ├── ir/            # graph IR definitions
-  ├── interpreter/   # execution of graph IR
+  ├── typechecker/   # typing rules, unification, effect checking
+  ├── elaborator/    # typed AST → graph IR
+  ├── ir/            # graph IR definitions & validation
+  ├── interpreter/   # graph IR evaluation
+  ├── module/        # import resolution, module graph, multi-module loader
   ├── types/         # shared type representations
-  └── cli/           # command-line interface (weave run, check, etc.)
+  └── cli/           # command-line interface
 ```
 
-This structure mirrors the language architecture:
+This structure mirrors the language pipeline:
 
 * **parser + surface** → syntax
 * **typechecker** → correctness
 * **elaborator** → semantics (key phase)
 * **ir** → canonical representation
 * **interpreter** → execution
+* **module** → import resolution and multi-module coordination
 * **cli** → user-facing tooling (built on top of the compiler core)
 
 ---
@@ -155,7 +180,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.1.9** — core language implemented and usable via CLI.
+Current stage: **v0.3.0** — core language complete; module system partially implemented.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -163,9 +188,12 @@ Current stage: **v0.1.9** — core language implemented and usable via CLI.
 * ✅ Elaboration rules & elaborator (typed AST → Graph IR)
 * ✅ Graph IR
 * ✅ Interpreter (graph IR evaluation)
-* ✅ CLI (`weave run`, `weave check`, `weave ir`)
-* ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order)
-* 🚧 Module system, editor tooling, optimization — not yet started
+* ✅ CLI (`weave check`, `weave run`)
+* ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order, `case .field`)
+* ✅ Module system — import resolution, cycle detection, multi-module typechecking
+* 🚧 Qualified name resolution in pipelines (`Foo.Bar.myDef`)
+* 🚧 `weave run` with imports (multi-module elaboration + interpretation)
+* 🚧 Editor tooling, optimization — not yet started
 
 ---
 

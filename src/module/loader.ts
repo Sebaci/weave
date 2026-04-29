@@ -26,8 +26,8 @@ export type LoadResult =
 
 /** Returns file paths in dependency-first order (leaves first, entry last). */
 function topoSort(graph: ModuleGraph, entryPath: string): string[] {
-  const order:   string[]      = [];
-  const visited: Set<string>   = new Set();
+  const order:   string[]    = [];
+  const visited: Set<string> = new Set();
 
   function visit(filePath: string): void {
     if (visited.has(filePath)) return;
@@ -46,28 +46,39 @@ function topoSort(graph: ModuleGraph, entryPath: string): string[] {
 // Export extraction
 // ---------------------------------------------------------------------------
 
-/** Extract the symbols a module exports so they can be seeded into importers. */
+/**
+ * Extract the symbols a module exports so they can be seeded into importers.
+ *
+ * Defs are seeded under both their bare name ("foo") for unqualified access
+ * and their qualified name ("Foo.Bar.foo") for future qualified access (Step 8).
+ * The DefInfo.name is always the qualified name so elaborator refs are stable.
+ *
+ * Ctors and typeDecls are seeded under bare names only (surface syntax is unqualified).
+ * Omega entries are already qualified.
+ */
 function extractExports(modPath: string[], typedMod: TypedModule): ModuleExports {
-  const defs:      Map<string, DefInfo>      = new Map();
-  const ctors:     Map<string, CtorInfo>     = new Map();
-  const typeDecls: TypeDeclEnv               = new Map();
-  const omega:     Omega                     = new Map();
+  const defs:      Map<string, DefInfo>  = new Map();
+  const ctors:     Map<string, CtorInfo> = new Map();
+  const typeDecls: TypeDeclEnv           = new Map();
+  const omega:     Omega                 = new Map();
 
   const prefix = modPath.join(".");
 
-  // Defs — registered under qualified name so importers reference them as Foo.Bar.name
   for (const [name, def] of typedMod.typedDefs) {
     const qualName = prefix ? `${prefix}.${name}` : name;
-    defs.set(qualName, {
+    const info: DefInfo = {
       name:     qualName,
-      params:   def.params,   // TypedDefParam and DefParamInfo share the same shape
+      params:   def.params,
       morphTy:  def.morphTy,
       body:     def.surfaceBody,
       sourceId: def.sourceId,
-    });
+    };
+    // Bare name — for unqualified references in importing modules
+    defs.set(name, info);
+    // Qualified name — for future qualified-access resolution (Step 8)
+    if (prefix) defs.set(qualName, info);
   }
 
-  // Type decls and ctors — registered under bare name (constructors are unqualified in surface syntax)
   for (const [name, td] of typedMod.typeDecls) {
     const info = typedDeclToInfo(td);
     typeDecls.set(name, info);
@@ -76,7 +87,6 @@ function extractExports(modPath: string[], typedMod: TypedModule): ModuleExports
     }
   }
 
-  // Omega — already keyed by qualified name
   for (const [key, entry] of typedMod.omega) omega.set(key, entry);
 
   return { defs, ctors, typeDecls, omega };
@@ -107,17 +117,47 @@ function typedDeclToInfo(td: TypedTypeDecl): TypeDeclInfo {
 // Merge exports from multiple modules
 // ---------------------------------------------------------------------------
 
-function mergeExports(exports: ModuleExports[]): ModuleExports {
+/**
+ * Merge exported envs from multiple modules into a single seed for an importer.
+ * Qualified names (containing ".") are assumed globally unique and are merged silently.
+ * Bare-name conflicts for defs, ctors, and typeDecls are reported as errors;
+ * the first-seen binding wins (the conflicting import is dropped).
+ */
+function mergeExports(
+  allExports: ModuleExports[],
+  errors:     LoadError[],
+  filePath:   string,
+): ModuleExports {
   const defs:      Map<string, DefInfo>  = new Map();
   const ctors:     Map<string, CtorInfo> = new Map();
   const typeDecls: TypeDeclEnv           = new Map();
   const omega:     Omega                 = new Map();
-  for (const exp of exports) {
-    for (const [k, v] of exp.defs)      defs.set(k, v);
-    for (const [k, v] of exp.ctors)     ctors.set(k, v);
-    for (const [k, v] of exp.typeDecls) typeDecls.set(k, v);
-    for (const [k, v] of exp.omega)     omega.set(k, v);
+
+  for (const exp of allExports) {
+    for (const [k, v] of exp.defs) {
+      if (!k.includes(".") && defs.has(k)) {
+        errors.push({ filePath, message: `Ambiguous import: name '${k}' is exported by multiple modules` });
+      } else {
+        defs.set(k, v);
+      }
+    }
+    for (const [k, v] of exp.ctors) {
+      if (ctors.has(k)) {
+        errors.push({ filePath, message: `Ambiguous import: constructor '${k}' is exported by multiple modules` });
+      } else {
+        ctors.set(k, v);
+      }
+    }
+    for (const [k, v] of exp.typeDecls) {
+      if (typeDecls.has(k)) {
+        errors.push({ filePath, message: `Ambiguous import: type '${k}' is exported by multiple modules` });
+      } else {
+        typeDecls.set(k, v);
+      }
+    }
+    for (const [k, v] of exp.omega) omega.set(k, v);
   }
+
   return { defs, ctors, typeDecls, omega };
 }
 
@@ -141,7 +181,7 @@ export function checkAll(graph: ModuleGraph, entryFile: string): LoadResult {
     const node = graph.get(filePath);
     if (!node) continue;
 
-    // Merge exported envs from all direct imports that have already been checked
+    const importErrors: LoadError[] = [];
     const seeds = mergeExports(
       node.depPaths.flatMap((dep) => {
         const depTyped = checked.get(dep);
@@ -149,7 +189,10 @@ export function checkAll(graph: ModuleGraph, entryFile: string): LoadResult {
         if (!depTyped || !depNode) return [];
         return [extractExports(depNode.mod.path, depTyped)];
       }),
+      importErrors,
+      filePath,
     );
+    errors.push(...importErrors);
 
     const spanMap = buildSpanMap(node.mod);
     const result  = checkModule(node.mod, seeds);

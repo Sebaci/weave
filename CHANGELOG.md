@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-04-30
+
+### Added
+- Module system: `import Foo.Bar` resolves to `Foo/Bar.weave` relative to the entry file's directory.
+- Module graph: full transitive import closure is parsed and cycle-detected before typechecking begins. Import cycles produce a clear error showing the full cycle path.
+- Multi-module type environment: imported modules are typechecked in dependency order; their exported type declarations, constructors, effect operations, and defs are seeded into the importing module's `CheckEnv`. `weave check` now works end-to-end across multiple files.
+- Unqualified def access: defs from imported modules are available under their bare name (e.g. `origin` from `module Shapes`). Qualified names (e.g. `Shapes.origin`) are also seeded, ready for qualified-access resolution in a future step.
+- Ambiguity detection: importing two modules that export the same bare constructor, type, or def name is a hard error with a descriptive message.
+- Type errors in any module in the import graph are reported with the correct file path and source location.
+
+---
+
 ## [0.2.0] - 2026-04-29
 
 ### Added
