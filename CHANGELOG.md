@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] - 2026-05-01
+
+### Added
+- `weave run` now works across multiple modules. A def in the entry file can call defs imported from other modules; the full import graph is elaborated and executed together.
+- Qualified def names (`Foo.Bar.baz`) are now the canonical form inside the IR. `Ref` and `SchemaInst` nodes always carry the fully-qualified def ID, eliminating bare-name collisions between unrelated modules during elaboration.
+- Builtin infix operator morphisms (`+`, `-`, `*`, etc.) now use reserved `builtin.*` def IDs in the IR, preventing any user-defined def from shadowing them regardless of name or module structure.
+
+---
+
 ## [0.3.1] - 2026-04-30
 
 ### Added

@@ -180,7 +180,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.3.0** — core language complete; module system partially implemented.
+Current stage: **v0.4.0** — module system complete; multi-module execution works end-to-end.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -191,8 +191,8 @@ Current stage: **v0.3.0** — core language complete; module system partially im
 * ✅ CLI (`weave check`, `weave run`)
 * ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order, `case .field`)
 * ✅ Module system — import resolution, cycle detection, multi-module typechecking
-* 🚧 Qualified name resolution in pipelines (`Foo.Bar.myDef`)
-* 🚧 `weave run` with imports (multi-module elaboration + interpretation)
+* ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
+* ✅ `weave run` with imports (multi-module elaboration + interpretation)
 * 🚧 Editor tooling, optimization — not yet started
 
 ---
