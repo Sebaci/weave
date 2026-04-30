@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { showType } from "../typechecker/index.ts";
-import { elaborateModule } from "../elaborator/index.ts";
+import { elaborateAll } from "../elaborator/index.ts";
 import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
 import { buildModuleGraph, type ResolverError } from "../module/resolver.ts";
@@ -104,8 +104,8 @@ function runRun(file: string, defName: string): void {
     );
   }
 
-  // --- Elaborate ---
-  const elabResult = elaborateModule(typedMod);
+  // --- Elaborate (all modules, so cross-module refs resolve at runtime) ---
+  const elabResult = elaborateAll(loadResult.modules);
   if (!elabResult.ok) {
     for (const err of elabResult.errors) {
       console.error(`${file}: elaboration error: ${err.message}`);

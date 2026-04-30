@@ -1,6 +1,9 @@
 import { test, expect } from "vitest";
-import { checkModule } from "../typechecker/check.ts";
-import { elaborateModule, resetElabCounters } from "./index.ts";
+import { checkModule, type ModuleExports } from "../typechecker/check.ts";
+import { elaborateModule, elaborateAll, resetElabCounters } from "./index.ts";
+import { parseModule } from "../parser/index.ts";
+import { interpret } from "../interpreter/eval.ts";
+import { VUnit, showValue, vInt } from "../interpreter/value.ts";
 import { validateGraph } from "../ir/validate.ts";
 import type { Graph, Node } from "../ir/ir.ts";
 import {
@@ -207,4 +210,52 @@ test("all elaborated graphs pass IR validation", () => {
   for (const [name, graph] of elabMod.defs) {
     assertValid(validateGraph(graph),`graph '${name}'`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Multi-module: elaborateAll
+// ---------------------------------------------------------------------------
+
+test("elaborateAll: cross-module Ref resolves and interprets correctly", () => {
+  resetElabCounters();
+
+  // Module A: "module A; def origin : Int = 42"
+  const srcA = `module A\ndef origin : Int = 42`;
+  const modA  = assertOk(parseModule(srcA), "modA:parse");
+  const typedA = assertOk(checkModule(modA), "modA:check");
+
+  // Seeds for module B: extracted from A
+  const prefix = "A";
+  const defInfo = typedA.typedDefs.get("origin")!;
+  const seeds: ModuleExports = {
+    defs: new Map([
+      ["origin",   { name: "A.origin", params: [], morphTy: defInfo.morphTy, body: defInfo.surfaceBody, sourceId: defInfo.sourceId }],
+      ["A.origin", { name: "A.origin", params: [], morphTy: defInfo.morphTy, body: defInfo.surfaceBody, sourceId: defInfo.sourceId }],
+    ]),
+    ctors:     new Map(),
+    typeDecls: new Map(),
+    omega:     new Map(),
+  };
+  void prefix;
+
+  // Module B: "module B; import A; def result : Int = A.origin"
+  const srcB = `module B\nimport A\ndef result : Int = A.origin`;
+  const modB   = assertOk(parseModule(srcB), "modB:parse");
+  const typedB = assertOk(checkModule(modB, seeds), "modB:check");
+
+  // elaborateAll over both modules
+  const modules = new Map([
+    ["/a.weave", typedA],
+    ["/b.weave", typedB],
+  ]);
+  const elabMod = assertOk(elaborateAll(modules), "elaborateAll");
+
+  // "result" must be in defs (bare name from entry module)
+  expect(elabMod.defs.has("result")).toBe(true);
+  // "A.origin" must be in defs (qualified name, needed by RefNode)
+  expect(elabMod.defs.has("A.origin")).toBe(true);
+
+  // Interpret "result": should produce Int 42
+  const value = interpret(elabMod, "result", VUnit);
+  expect(showValue(value)).toBe(showValue(vInt(42)));
 });

@@ -100,6 +100,53 @@ export function elaborateModule(mod: TypedModule): TypeResult<ElaboratedModule> 
   return ok({ defs, typeDecls: mod.typeDecls, omega: mod.omega });
 }
 
+/**
+ * Elaborate all modules in a multi-module program into a single ElaboratedModule.
+ *
+ * Each non-polymorphic def is stored under both its qualified name (e.g.
+ * "Shapes.origin") and its bare name (e.g. "origin") so that:
+ *   - Cross-module RefNodes (defId = "Shapes.origin") resolve correctly.
+ *   - Intra-module RefNodes (defId = "origin") also resolve correctly.
+ *   - The CLI can look up the entry def by bare name.
+ *
+ * The cross-module typedDefs map is also passed to elaborateDef so that
+ * SchemaInst across modules finds the higher-order def body.
+ */
+export function elaborateAll(modules: Map<string, TypedModule>): TypeResult<ElaboratedModule> {
+  // Build cross-module maps indexed by both bare and qualified names.
+  const allTypedDefs  = new Map<string, TypedDef>();
+  const allOmega      = new Map<string, OmegaEntry>();
+  const allTypeDecls  = new Map<string, TypedTypeDecl>();
+
+  for (const [, typedMod] of modules) {
+    const prefix = typedMod.path.join(".");
+    for (const [bareName, def] of typedMod.typedDefs) {
+      allTypedDefs.set(bareName, def);
+      if (prefix) allTypedDefs.set(`${prefix}.${bareName}`, def);
+    }
+    for (const [k, v] of typedMod.omega)      allOmega.set(k, v);
+    for (const [k, v] of typedMod.typeDecls)  allTypeDecls.set(k, v);
+  }
+
+  // Elaborate every non-polymorphic def using the full cross-module context.
+  const errors: TypeError[] = [];
+  const defs = new Map<string, Graph>();
+
+  for (const [, typedMod] of modules) {
+    const prefix = typedMod.path.join(".");
+    for (const [bareName, def] of typedMod.typedDefs) {
+      if (isPolymorphic(def)) continue;
+      const r = elaborateDef(def, allTypedDefs, allOmega);
+      if (!r.ok) { errors.push(...r.errors); continue; }
+      defs.set(bareName, r.value);
+      if (prefix) defs.set(`${prefix}.${bareName}`, r.value);
+    }
+  }
+
+  if (errors.length > 0) return fail(errors);
+  return ok({ defs, typeDecls: allTypeDecls, omega: allOmega });
+}
+
 function isPolymorphic(def: TypedDef): boolean {
   return def.params.length > 0 || hasTypeVar(def.morphTy.input) || hasTypeVar(def.morphTy.output);
 }
