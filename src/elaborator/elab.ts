@@ -89,11 +89,22 @@ export function elaborateModule(mod: TypedModule): TypeResult<ElaboratedModule> 
   const errors: TypeError[] = [];
   const defs = new Map<string, Graph>();
 
-  for (const [name, def] of mod.typedDefs) {
+  const prefix = mod.path.join(".");
+  // Build a typedDefs context with both bare and qualified keys so that
+  // SchemaInst.defName (now always qualified) can be resolved.
+  const typedDefsCtx = new Map<string, TypedDef>(mod.typedDefs);
+  if (prefix) {
+    for (const [bareName, def] of mod.typedDefs) {
+      typedDefsCtx.set(`${prefix}.${bareName}`, def);
+    }
+  }
+
+  for (const [bareName, def] of mod.typedDefs) {
     if (isPolymorphic(def)) continue;  // elaborated only at SchemaInst sites
-    const r = elaborateDef(def, mod.typedDefs, mod.omega);
+    const r = elaborateDef(def, typedDefsCtx, mod.omega);
     if (!r.ok) { errors.push(...r.errors); continue; }
-    defs.set(name, r.value);
+    defs.set(bareName, r.value);
+    if (prefix) defs.set(`${prefix}.${bareName}`, r.value);
   }
 
   if (errors.length > 0) return fail(errors);
@@ -113,7 +124,9 @@ export function elaborateModule(mod: TypedModule): TypeResult<ElaboratedModule> 
  * SchemaInst across modules finds the higher-order def body.
  */
 export function elaborateAll(modules: Map<string, TypedModule>): TypeResult<ElaboratedModule> {
-  // Build cross-module maps indexed by both bare and qualified names.
+  // Build cross-module maps indexed by qualified names only.
+  // RefNode.defId and SchemaInst.defName are always qualified (set by typechecker),
+  // so bare-name keys are not needed here and would cause collisions across modules.
   const allTypedDefs  = new Map<string, TypedDef>();
   const allOmega      = new Map<string, OmegaEntry>();
   const allTypeDecls  = new Map<string, TypedTypeDecl>();
@@ -121,8 +134,8 @@ export function elaborateAll(modules: Map<string, TypedModule>): TypeResult<Elab
   for (const [, typedMod] of modules) {
     const prefix = typedMod.path.join(".");
     for (const [bareName, def] of typedMod.typedDefs) {
-      allTypedDefs.set(bareName, def);
-      if (prefix) allTypedDefs.set(`${prefix}.${bareName}`, def);
+      const qualName = prefix ? `${prefix}.${bareName}` : bareName;
+      allTypedDefs.set(qualName, def);
     }
     for (const [k, v] of typedMod.omega)      allOmega.set(k, v);
     for (const [k, v] of typedMod.typeDecls)  allTypeDecls.set(k, v);
@@ -138,8 +151,8 @@ export function elaborateAll(modules: Map<string, TypedModule>): TypeResult<Elab
       if (isPolymorphic(def)) continue;
       const r = elaborateDef(def, allTypedDefs, allOmega);
       if (!r.ok) { errors.push(...r.errors); continue; }
-      defs.set(bareName, r.value);
-      if (prefix) defs.set(`${prefix}.${bareName}`, r.value);
+      const qualName = prefix ? `${prefix}.${bareName}` : bareName;
+      defs.set(qualName, r.value);
     }
   }
 

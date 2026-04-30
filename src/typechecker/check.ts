@@ -177,12 +177,16 @@ function buildEnv(mod: Module, seeds?: ModuleExports): TypeResult<EnvBuildResult
   }
 
   // --- Collect def signatures ---
+  const defPrefix = mod.path.join(".");
   for (const topDecl of mod.decls) {
     if (topDecl.tag !== "DefDecl") continue;
     const decl = topDecl.decl;
     const r = buildDefSignature(decl, typeDecls);
     if (!r.ok) { errors.push(...r.errors); continue; }
-    defs.set(decl.name, r.value);
+    const qualName = defPrefix ? `${defPrefix}.${decl.name}` : decl.name;
+    const info: DefInfo = { ...r.value, name: qualName };
+    defs.set(decl.name, info);
+    if (defPrefix) defs.set(qualName, info);
   }
 
   if (errors.length > 0) return fail(errors);
@@ -598,7 +602,7 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
       const resolvedOutput = applySubst(morphTy.output, unifyR.subst, unifyR.effSubst);
       const resolvedEff = resolveEffFinal(applyEffSubst(morphTy.eff, unifyR.effSubst));
       return ok(makeStep(
-        { tag: "Ref", defId: step.name },
+        { tag: "Ref", defId: defInfo.name },
         { input: inputTy, output: resolvedOutput, eff: resolvedEff },
         step.meta.id,
       ));
@@ -1499,7 +1503,7 @@ function checkSchemaInst(
   const effSubstForElab = new Map<string, ConcreteEffect>(finalEffSubst);
 
   return ok(makeStep(
-    { tag: "SchemaInst", defName, tySubst: tySubstForElab, effSubst: effSubstForElab, argSubst },
+    { tag: "SchemaInst", defName: defInfo.name, tySubst: tySubstForElab, effSubst: effSubstForElab, argSubst },
     { input: inputTy, output: finalOutput, eff: resolvedEff },
     sourceId,
   ));

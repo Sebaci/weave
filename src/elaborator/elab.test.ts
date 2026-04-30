@@ -250,12 +250,12 @@ test("elaborateAll: cross-module Ref resolves and interprets correctly", () => {
   ]);
   const elabMod = assertOk(elaborateAll(modules), "elaborateAll");
 
-  // "result" must be in defs (bare name from entry module)
-  expect(elabMod.defs.has("result")).toBe(true);
+  // "B.result" must be in defs (qualified name — elaborateAll uses qualified keys only)
+  expect(elabMod.defs.has("B.result")).toBe(true);
   // "A.origin" must be in defs (qualified name, needed by RefNode)
   expect(elabMod.defs.has("A.origin")).toBe(true);
 
-  // Interpret "result": should produce Int 42
-  const value = interpret(elabMod, "result", VUnit);
+  // Interpret "B.result": should produce Int 42
+  const value = interpret(elabMod, "B.result", VUnit);
   expect(showValue(value)).toBe(showValue(vInt(42)));
 });

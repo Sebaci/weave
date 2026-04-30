@@ -114,14 +114,16 @@ function runRun(file: string, defName: string): void {
   }
   const elabMod = elabResult.value;
 
-  // Guard: schema/polymorphic defs are omitted from the elaborated graph map.
-  if (!elabMod.defs.has(defName)) {
-    die(`weave run: def '${defName}' is polymorphic and cannot be run directly`);
-  }
-
   // Augment host effects with qualified names (e.g. "Examples.Hello.print")
   // so that `perform Examples.Hello.print` and `perform print` both resolve.
   const modulePrefix = mod.path.join(".");
+  const qualDefName = modulePrefix ? `${modulePrefix}.${defName}` : defName;
+
+  // Guard: schema/polymorphic defs are omitted from the elaborated graph map.
+  if (!elabMod.defs.has(qualDefName)) {
+    die(`weave run: def '${defName}' is polymorphic and cannot be run directly`);
+  }
+
   const effects: EffectHandlers = new Map(HOST_EFFECTS);
   for (const [bare, handler] of HOST_EFFECTS) {
     effects.set(`${modulePrefix}.${bare}`, handler);
@@ -129,7 +131,7 @@ function runRun(file: string, defName: string): void {
 
   // --- Interpret ---
   try {
-    const result = interpret(elabMod, defName, VUnit, effects);
+    const result = interpret(elabMod, qualDefName, VUnit, effects);
     if (result.tag !== "unit") console.log(showValue(result));
   } catch (e) {
     if (e instanceof MissingEffectHandlerError) {
