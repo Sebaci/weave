@@ -512,8 +512,12 @@ class Parser {
       return { tag: "Literal", value: { tag: "bool", value: t.text === "True" }, meta: this.mkSpan(start) };
     }
 
-    // Uppercase: constructor or schema-inst-with-upper-name (not in v1; ctors only here)
+    // Uppercase: qualified name (Foo.Bar.baz) or constructor
+    // Qualified name pattern: UPPER (DOT UPPER)* DOT IDENT
     if (t.kind === "UPPER") {
+      if (this.isQualifiedName()) {
+        return this.parseQualifiedName(start);
+      }
       this.advance();
       return { tag: "Ctor", name: t.text, meta: this.mkSpan(start) };
     }
@@ -554,6 +558,46 @@ class Parser {
     }
 
     this.err(`Unexpected token '${t.text || t.kind}' in expression`);
+  }
+
+  // =========================================================================
+  // Qualified name helpers
+  // =========================================================================
+
+  /**
+   * Lookahead: cur() is UPPER. Returns true if the upcoming tokens form
+   * UPPER (DOT UPPER)* DOT IDENT — a qualified def reference like Foo.Bar.baz.
+   */
+  isQualifiedName(): boolean {
+    let n = 1;
+    for (;;) {
+      if (this.look(n).kind !== "DOT") return false;
+      n++;
+      const next = this.look(n);
+      if (next.kind === "IDENT") return true;
+      if (next.kind === "UPPER") { n++; continue; }
+      return false;
+    }
+  }
+
+  /** Consume UPPER (DOT UPPER)* DOT IDENT and return a Name step. */
+  parseQualifiedName(start: SourceSpan): Step {
+    const parts: string[] = [this.advance().text]; // consume first UPPER
+    for (;;) {
+      if (this.cur().kind !== "DOT") break;
+      const after = this.look(); // token after the DOT
+      if (after.kind === "IDENT") {
+        this.advance();                    // consume DOT
+        parts.push(this.advance().text);   // consume IDENT
+        break;
+      } else if (after.kind === "UPPER") {
+        this.advance();                    // consume DOT
+        parts.push(this.advance().text);   // consume UPPER
+      } else {
+        break;
+      }
+    }
+    return { tag: "Name", name: parts.join("."), meta: this.mkSpan(start) };
   }
 
   // =========================================================================

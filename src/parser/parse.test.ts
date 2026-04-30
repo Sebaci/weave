@@ -196,3 +196,42 @@ test("module header: path and imports parse correctly", () => {
   expect(modR.value.path.join(".")).toBe("Example.List");
   expect(modR.value.imports.length).toBe(1);
 });
+
+test("qualified name: single module component Foo.bar parses as Name", () => {
+  const r = parseModule(`def foo : Int = Foo.bar`);
+  expect(r.ok).toBe(true);
+  if (!r.ok) return;
+  const decl = r.value.decls[0];
+  if (decl?.tag !== "DefDecl") return;
+  const step = decl.decl.body.steps[0];
+  expect(step?.tag).toBe("Name");
+  if (step?.tag !== "Name") return;
+  expect(step.name).toBe("Foo.bar");
+});
+
+test("qualified name: two module components Foo.Bar.baz parses as Name", () => {
+  const r = parseModule(`def foo : Int = Foo.Bar.baz`);
+  expect(r.ok).toBe(true);
+  if (!r.ok) return;
+  const decl = r.value.decls[0];
+  if (decl?.tag !== "DefDecl") return;
+  const step = decl.decl.body.steps[0];
+  expect(step?.tag).toBe("Name");
+  if (step?.tag !== "Name") return;
+  expect(step.name).toBe("Foo.Bar.baz");
+});
+
+test("qualified name: bare UPPER still parses as Ctor", () => {
+  const r = parseModule(`
+    type T = | A
+    def foo : T = A
+  `);
+  expect(r.ok).toBe(true);
+  if (!r.ok) return;
+  const decl = r.value.decls[1];
+  if (decl?.tag !== "DefDecl") return;
+  const step = decl.decl.body.steps[0];
+  expect(step?.tag).toBe("Ctor");
+  if (step?.tag !== "Ctor") return;
+  expect(step.name).toBe("A");
+});

@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { checkModule } from "./check.ts";
+import { checkModule, type ModuleExports } from "./check.ts";
 import {
   pipeline, stepFold, stepFanout, stepInfix, stepName, stepCtor, stepCase,
   branch, nullaryHandler, recordHandler, bindBinder, wildcardBinder,
@@ -172,4 +172,30 @@ test("type error: unknown infix operator **", () => {
   );
   const mod: Module = mkModule([], [], [topDefDecl(badDef)]);
   expect(checkModule(mod).ok).toBe(false);
+});
+
+test("qualified name: Foo.bar resolves when seeded as qualified def", () => {
+  const seeds: ModuleExports = {
+    defs: new Map([
+      ["Foo.bar", {
+        name:     "Foo.bar",
+        params:   [],
+        morphTy:  { input: { tag: "Unit" }, output: { tag: "Int" }, eff: "pure" },
+        body:     pipeline(stepName("Foo.bar")),
+        sourceId: "seed_1",
+      }],
+    ]),
+    ctors:     new Map(),
+    typeDecls: new Map(),
+    omega:     new Map(),
+  };
+
+  const mod: Module = mkModule([], [], [
+    topDefDecl(mkDefDecl("result", [], stBase("Int"), null, pipeline(stepName("Foo.bar")))),
+  ]);
+
+  const r = assertOk(checkModule(mod, seeds), "qualified name resolution");
+  const def = r.typedDefs.get("result");
+  expect(def).toBeDefined();
+  expect(def?.morphTy.output).toMatchObject({ tag: "Int" });
 });

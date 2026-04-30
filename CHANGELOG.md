@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] - 2026-04-30
+
+### Added
+- Qualified name resolution: `Foo.Bar.baz` in a pipeline body is now parsed as a single `Name` reference and resolved against the imported module's exported defs. Both qualified (`Foo.Bar.baz`) and bare (`baz`) access continue to work when unambiguous.
+
+---
+
 ## [0.3.0] - 2026-04-30
 
 ### Added
