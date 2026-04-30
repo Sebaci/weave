@@ -33,18 +33,18 @@ export const BUILTIN_OPS: readonly string[] = [
 // ---------------------------------------------------------------------------
 
 const INFIX_TABLE: Record<string, BuiltinOpEntry> = {
-  "+":  numericOp("add"),
-  "-":  numericOp("sub"),
-  "*":  numericOp("mul"),
-  "/":  numericOp("div"),
-  "<":  comparisonOp("lt"),
-  ">":  comparisonOp("gt"),
-  "<=": comparisonOp("leq"),
-  ">=": comparisonOp("geq"),
-  "==": equalityOp("eq"),
-  "!=": equalityOp("neq"),
-  "&&": boolOp("and"),
-  "||": boolOp("or"),
+  "+":  numericOp("builtin.add"),
+  "-":  numericOp("builtin.sub"),
+  "*":  numericOp("builtin.mul"),
+  "/":  numericOp("builtin.div"),
+  "<":  comparisonOp("builtin.lt"),
+  ">":  comparisonOp("builtin.gt"),
+  "<=": comparisonOp("builtin.leq"),
+  ">=": comparisonOp("builtin.geq"),
+  "==": equalityOp("builtin.eq"),
+  "!=": equalityOp("builtin.neq"),
+  "&&": boolOp("builtin.and"),
+  "||": boolOp("builtin.or"),
 };
 
 // ---------------------------------------------------------------------------

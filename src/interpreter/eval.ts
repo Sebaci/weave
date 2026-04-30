@@ -27,18 +27,18 @@ import type { Type } from "../types/type.ts";
 type BuiltinFn = (input: Value) => Value;
 
 const BUILTIN_MORPHISMS: Map<string, BuiltinFn> = new Map([
-  ["add",  (v) => numOp(v, (a, b) => a + b, (a, b) => a + b)],
-  ["sub",  (v) => numOp(v, (a, b) => a - b, (a, b) => a - b)],
-  ["mul",  (v) => numOp(v, (a, b) => a * b, (a, b) => a * b)],
-  ["div",  (v) => numOp(v, (a, b) => Math.trunc(a / b), (a, b) => a / b)],
-  ["lt",   (v) => cmpOp(v, (a, b) => a < b)],
-  ["gt",   (v) => cmpOp(v, (a, b) => a > b)],
-  ["leq",  (v) => cmpOp(v, (a, b) => a <= b)],
-  ["geq",  (v) => cmpOp(v, (a, b) => a >= b)],
-  ["eq",   (v) => eqOp(v, true)],
-  ["neq",  (v) => eqOp(v, false)],
-  ["and",  (v) => boolOp(v, (a, b) => a && b)],
-  ["or",   (v) => boolOp(v, (a, b) => a || b)],
+  ["builtin.add",  (v) => numOp(v, (a, b) => a + b, (a, b) => a + b)],
+  ["builtin.sub",  (v) => numOp(v, (a, b) => a - b, (a, b) => a - b)],
+  ["builtin.mul",  (v) => numOp(v, (a, b) => a * b, (a, b) => a * b)],
+  ["builtin.div",  (v) => numOp(v, (a, b) => Math.trunc(a / b), (a, b) => a / b)],
+  ["builtin.lt",   (v) => cmpOp(v, (a, b) => a < b)],
+  ["builtin.gt",   (v) => cmpOp(v, (a, b) => a > b)],
+  ["builtin.leq",  (v) => cmpOp(v, (a, b) => a <= b)],
+  ["builtin.geq",  (v) => cmpOp(v, (a, b) => a >= b)],
+  ["builtin.eq",   (v) => eqOp(v, true)],
+  ["builtin.neq",  (v) => eqOp(v, false)],
+  ["builtin.and",  (v) => boolOp(v, (a, b) => a && b)],
+  ["builtin.or",   (v) => boolOp(v, (a, b) => a || b)],
 ]);
 
 function getLR(v: Value, opName: string): { l: Value; r: Value } {

@@ -259,3 +259,28 @@ test("elaborateAll: cross-module Ref resolves and interprets correctly", () => {
   const value = interpret(elabMod, "B.result", VUnit);
   expect(showValue(value)).toBe(showValue(vInt(42)));
 });
+
+test("builtin operator does not shadow user def with same bare name", () => {
+  // A headerless module defines `def add : Int -> Int = 100`.
+  // A second def uses `1 + 2` (the builtin +).
+  // They must not collide: `callAdd` must return 100, `three` must return 3.
+  resetElabCounters();
+
+  const src = [
+    "def add : Int -> Int = 100",
+    "def callAdd : Int -> Int = add",
+    "def three : Unit -> Int = 1 + 2",
+  ].join("\n");
+
+  const mod     = assertOk(parseModule(src), "parse");
+  const typed   = assertOk(checkModule(mod), "check");
+  const elabMod = assertOk(elaborateModule(typed), "elab");
+
+  // `callAdd` must evaluate to 100 — calls the user def, not the builtin
+  const callAddResult = interpret(elabMod, "callAdd", vInt(0));
+  expect(showValue(callAddResult)).toBe(showValue(vInt(100)));
+
+  // `three` must evaluate to 3 — uses the builtin + operator
+  const threeResult = interpret(elabMod, "three", VUnit);
+  expect(showValue(threeResult)).toBe(showValue(vInt(3)));
+});
