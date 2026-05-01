@@ -10,6 +10,7 @@ import {
   loadErrorToJson, resolverErrorToJson,
   type JsonOutput,
 } from "./diagnostics.ts";
+import { decodeInput, InputDecodeError } from "./input.ts";
 
 // ---------------------------------------------------------------------------
 // Host effect bindings supplied by the CLI runtime
@@ -38,14 +39,26 @@ if (command === "check") {
   }
   runCheck(filePath, jsonMode);
 } else if (command === "run") {
-  if (!filePath || rest.length !== 2 || rest[0] !== "--def" || !rest[1]) {
-    die("Usage: npm run cli -- run <file> --def <name>");
+  let defName: string | undefined;
+  let inputJson: string | undefined;
+  const args = [...rest];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--def" && args[i + 1]) {
+      defName = args[++i];
+    } else if (args[i] === "--input" && args[i + 1] !== undefined) {
+      inputJson = args[++i];
+    } else {
+      die("Usage: npm run cli -- run <file> --def <name> [--input '<json>']");
+    }
   }
-  runRun(filePath, rest[1]);
+  if (!filePath || !defName) {
+    die("Usage: npm run cli -- run <file> --def <name> [--input '<json>']");
+  }
+  runRun(filePath, defName, inputJson);
 } else {
   console.error("Usage:");
   console.error("  npm run cli -- check <file> [--json]");
-  console.error("  npm run cli -- run <file> --def <name>");
+  console.error("  npm run cli -- run <file> --def <name> [--input '<json>']");
   process.exit(1);
 }
 
@@ -86,7 +99,7 @@ function runCheck(file: string, json: boolean): void {
   }
 }
 
-function runRun(file: string, defName: string): void {
+function runRun(file: string, defName: string, inputJson?: string): void {
   // --- Resolve + Parse + Typecheck (all modules) ---
   const graphResult = buildModuleGraph(file);
   if (!graphResult.ok) {
@@ -110,17 +123,12 @@ function runRun(file: string, defName: string): void {
   if (!typedMod) die(`weave run: internal error: entry module not found after check`);
   const mod = graphResult.graph.get(absFile)!.mod;
 
-  // --- Check def exists and takes Unit input ---
+  // --- Check def exists ---
   const typedDef = typedMod.typedDefs.get(defName);
   if (!typedDef) {
     die(`weave run: no def '${defName}' in ${file}`);
   }
-  if (typedDef.morphTy.input.tag !== "Unit") {
-    die(
-      `weave run: def '${defName}' expects input type ${showType(typedDef.morphTy.input)}, ` +
-      `but CLI execution currently supplies Unit`,
-    );
-  }
+  const inputTy = typedDef.morphTy.input;
 
   // --- Elaborate (all modules, so cross-module refs resolve at runtime) ---
   const elabResult = elaborateAll(loadResult.modules);
@@ -148,9 +156,37 @@ function runRun(file: string, defName: string): void {
     effects.set(`${modulePrefix}.${bare}`, handler);
   }
 
+  // --- Resolve input value ---
+  let inputValue: Value;
+  if (inputJson !== undefined) {
+    let rawJson: unknown;
+    try {
+      rawJson = JSON.parse(inputJson);
+    } catch {
+      die(`weave run: --input is not valid JSON`);
+    }
+    try {
+      inputValue = decodeInput(rawJson, inputTy, elabMod.typeDecls);
+    } catch (e) {
+      if (e instanceof InputDecodeError) {
+        die(
+          `weave run: --input does not match expected type ${showType(inputTy)}\n  ${e.message}`,
+        );
+      }
+      throw e;
+    }
+  } else if (inputTy.tag === "Unit") {
+    inputValue = VUnit;
+  } else {
+    die(
+      `weave run: def '${defName}' expects input type ${showType(inputTy)}; ` +
+      `use --input '<json>' to supply a value`,
+    );
+  }
+
   // --- Interpret ---
   try {
-    const result = interpret(elabMod, qualDefName, VUnit, effects);
+    const result = interpret(elabMod, qualDefName, inputValue, effects);
     if (result.tag !== "unit") console.log(showValue(result));
   } catch (e) {
     if (e instanceof MissingEffectHandlerError) {
