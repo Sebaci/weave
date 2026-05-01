@@ -125,7 +125,7 @@ docs/
   └── weave-implementation-notes-v1.md  # canonical decisions not in the spec
 
 editors/
-  └── vscode/        # VS Code extension (syntax highlighting, future LSP)
+  └── vscode/        # VS Code extension (syntax highlighting + LSP client)
 
 examples/            # runnable Weave programs
 
@@ -138,7 +138,8 @@ src/
   ├── interpreter/   # graph IR evaluation
   ├── module/        # import resolution, module graph, multi-module loader
   ├── types/         # shared type representations
-  └── cli/           # command-line interface
+  ├── cli/           # command-line interface
+  └── lsp/           # LSP server (diagnostics-on-save for editors)
 ```
 
 This structure mirrors the language pipeline:
@@ -184,7 +185,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.6.0** — VS Code syntax highlighting.
+Current stage: **v0.7.0** — LSP server with live diagnostics.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -198,8 +199,8 @@ Current stage: **v0.6.0** — VS Code syntax highlighting.
 * ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
 * ✅ `weave run` with imports (multi-module elaboration + interpretation)
 * ✅ Structured diagnostics — error codes, source spans, source snippets with caret, `--json` output
-* ✅ VS Code extension skeleton — syntax highlighting for `.weave` files (TextMate grammar)
-* 🚧 LSP server, optimization — not yet started
+* ✅ VS Code extension — syntax highlighting + LSP server with diagnostics-on-save
+* 🚧 Optimization, advanced tooling — not yet started
 
 ---
 

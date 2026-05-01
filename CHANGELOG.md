@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-05-01
+
+### Added
+- LSP server (`src/lsp/server.ts`): diagnostics are published to the editor on file open and save. Parse errors, type errors, and import-resolution errors all appear as squiggles with correct file/line/column locations.
+- VS Code extension now activates as a language client: launches the bundled LSP server (`editors/vscode/out/server.mjs`) via IPC and streams diagnostics for all `.weave` files.
+- `npm run bundle:lsp` produces a self-contained ESM bundle of the LSP server at `editors/vscode/out/server.mjs`, usable without `tsx`.
+- Diagnostics track the full module graph: when a file is saved, all files in its import closure are checked and their diagnostics updated. Files that leave the graph (e.g. after an import is removed) are cleared automatically, including in multi-entry and shared-dependency scenarios.
+
+---
+
 ## [0.6.0] - 2026-05-01
 
 ### Added
