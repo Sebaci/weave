@@ -5,20 +5,38 @@ import type { ResolverError } from "../module/resolver.ts";
 // Snippet rendering helpers
 // ---------------------------------------------------------------------------
 
+const TAB_WIDTH = 8;
+
+function expandTabs(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    if (ch === "\t") {
+      const spaces = TAB_WIDTH - (out.length % TAB_WIDTH);
+      out += " ".repeat(spaces);
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
 function renderSnippet(source: string, line: number, column: number): string {
   const lines = source.split("\n");
   const lineIdx = line - 1; // 1-based → 0-based
   if (lineIdx < 0 || lineIdx >= lines.length) return "";
 
-  const srcLine = lines[lineIdx];
+  const rawLine = lines[lineIdx] ?? "";
+  // Expand tabs so the caret aligns with the displayed column position.
+  const displayLine = expandTabs(rawLine);
+  const caretPrefix = expandTabs(rawLine.slice(0, Math.max(0, column - 1)));
+
   const lineLabel = String(line);
   const gutterWidth = lineLabel.length + 1;
   const gutter = " ".repeat(gutterWidth);
-  const caretOffset = " ".repeat(Math.max(0, column - 1));
 
   return [
-    `  ${lineLabel} | ${srcLine}`,
-    `  ${gutter}  ${caretOffset}^^^`,
+    `  ${lineLabel} | ${displayLine}`,
+    `  ${gutter}  ${caretPrefix}^^^`,
   ].join("\n");
 }
 
