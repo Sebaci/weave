@@ -9,7 +9,8 @@
  *   Text         → JSON string
  *   Record       → JSON object with matching named fields
  *   Named (ADT)  → { "tag": "<Ctor>", ...payload-fields }
- *                   "tag" is reserved; constructor payload fields may not use it.
+ *                   "tag" is reserved as the discriminator. Constructor payload
+ *                   fields named "tag" are unencodable and produce a decode error.
  *
  * For ADTs, constructor payloads are always named records in Weave, so all
  * payload fields appear flat in the JSON object alongside "tag". Nullary
@@ -174,6 +175,12 @@ function decodeNamed(
     );
   }
 
+  if (args.length !== decl.params.length) {
+    throw new InputDecodeError(
+      `${path}: type '${name}' expects ${decl.params.length} type argument(s) but got ${args.length}; the def input type must be fully concrete`,
+    );
+  }
+
   // Record-alias type: decode as a plain record with substituted field types
   if (decl.body.tag === "Record") {
     const subst = buildSubst(decl.params, args);
@@ -225,6 +232,15 @@ function decodeNamed(
   if (concretePayload.tag !== "Record") {
     throw new InputDecodeError(
       `${path}: internal: constructor "${ctorName}" payload resolved to non-record type ${showType(concretePayload)}`,
+    );
+  }
+
+  // Enforce "tag" reservation: a payload field named "tag" is unencodable in
+  // the flat tagged-object encoding because it collides with the discriminator.
+  const tagClash = concretePayload.fields.find((f) => f.name === "tag");
+  if (tagClash) {
+    throw new InputDecodeError(
+      `${path}: constructor "${ctorName}" has a payload field named "tag", which is reserved in the JSON encoding; this constructor cannot be used with --input`,
     );
   }
 
