@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2026-05-01
+
+### Added
+- VS Code extension skeleton (`editors/vscode/`): registers `.weave` files as the Weave language and provides TextMate grammar for syntax highlighting.
+- TextMate grammar covers all keywords (`module`, `import`, `type`, `def`, `effect`, `case`, `fold`, `build`, `fanout`, `over`, `let`, `in`, `perform`, `pure`, `parallel-safe`, `sequential`), type/constructor names, `def` function names, boolean and numeric literals, string literals, line comments (`--`), and all v1 operators (`>>>`, `->`, `==`, `!=`, `<=`, `>=`, `&&`, `||`, `/`, and single-character operators).
+- Language configuration: comment toggling (`--`), bracket matching and auto-close for `{}` and `()`.
+
+---
+
 ## [0.5.0] - 2026-05-01
 
 ### Added

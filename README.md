@@ -184,7 +184,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.5.0** — structured diagnostics complete.
+Current stage: **v0.6.0** — VS Code syntax highlighting.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -198,7 +198,8 @@ Current stage: **v0.5.0** — structured diagnostics complete.
 * ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
 * ✅ `weave run` with imports (multi-module elaboration + interpretation)
 * ✅ Structured diagnostics — error codes, source spans, source snippets with caret, `--json` output
-* 🚧 Editor tooling, optimization — not yet started
+* ✅ VS Code extension skeleton — syntax highlighting for `.weave` files (TextMate grammar)
+* 🚧 LSP server, optimization — not yet started
 
 ---
 
