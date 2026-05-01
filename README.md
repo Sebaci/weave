@@ -114,9 +114,10 @@ That's it for the CLI. No global install required.
 ### CLI
 
 ```bash
-npm run cli -- check <file>              # parse + typecheck (all imported modules)
-npm run cli -- check <file> --json       # machine-readable JSON diagnostics
-npm run cli -- run   <file> --def <name> # full pipeline, Unit-input defs only
+npm run cli -- check <file>                            # parse + typecheck (all imported modules)
+npm run cli -- check <file> --json                     # machine-readable JSON diagnostics
+npm run cli -- run   <file> --def <name>               # run a Unit-input def
+npm run cli -- run   <file> --def <name> --input '<json>'  # run any monomorphic def with structured input
 ```
 
 Examples:
@@ -124,6 +125,7 @@ Examples:
 ```bash
 npm run cli -- check examples/hello.weave
 npm run cli -- run   examples/build.weave --def origin
+npm run cli -- run   examples/sum.weave   --def sum --input '{"tag":"Cons","head":1,"tail":{"tag":"Cons","head":2,"tail":{"tag":"Nil"}}}'
 ```
 
 Multi-module programs work as long as imported files are resolvable relative to the entry file:
@@ -227,7 +229,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.7.1** — installable VS Code extension with working LSP.
+Current stage: **v0.8.0** — structured CLI input for any monomorphic def.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -235,14 +237,15 @@ Current stage: **v0.7.1** — installable VS Code extension with working LSP.
 * ✅ Elaboration rules & elaborator (typed AST → Graph IR)
 * ✅ Graph IR
 * ✅ Interpreter (graph IR evaluation)
-* ✅ CLI (`weave check`, `weave run`)
+* ✅ CLI (`weave check`, `weave run`, `weave run --input`)
 * ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order, `case .field`)
 * ✅ Module system — import resolution, cycle detection, multi-module typechecking
 * ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
 * ✅ `weave run` with imports (multi-module elaboration + interpretation)
 * ✅ Structured diagnostics — error codes, source spans, source snippets with caret, `--json` output
 * ✅ VS Code extension — syntax highlighting + LSP server with diagnostics-on-save
-* 🚧 Optimization, advanced tooling — not yet started
+* ✅ `--input '<json>'` — type-directed JSON input for any monomorphic def
+* 🚧 Effect runtime binding, REPL — not yet started
 
 ---
 

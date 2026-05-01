@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2026-05-02
+
+### Added
+- `weave run --input '<json>'`: supply a structured input value to any monomorphic def, not just Unit-input ones. The decoder is type-directed — it walks the expected Weave type and validates the JSON simultaneously, so errors report both the expected Weave type and the exact JSON path where the mismatch occurred.
+- ADT JSON encoding: flat tagged-object `{ "tag": "Ctor", ...payload-fields }`. Constructor payloads are always named records in Weave, so all payload fields appear alongside `"tag"` at the top level. Nullary constructors use `{ "tag": "Ctor" }` with no extra fields.
+- Lists and all other ADTs are encoded the same way — no special syntax. `[1, 2, 3]` as `List Int` is `{"tag":"Cons","head":1,"tail":{"tag":"Cons","head":2,"tail":{"tag":"Cons","head":3,"tail":{"tag":"Nil"}}}}`.
+- `"tag"` is reserved as the ADT discriminator. A constructor with a payload field named `"tag"` produces a clear decode error rather than silent corruption.
+- Arity check: parameterized types with the wrong number of type arguments (unsaturated) are rejected before decoding rather than partially substituted.
+- Defs that expect non-Unit input but receive no `--input` flag now produce a helpful error showing the expected type and the flag to use.
+
+---
+
 ## [0.7.1] - 2026-05-01
 
 ### Fixed
