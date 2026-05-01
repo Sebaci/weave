@@ -209,12 +209,10 @@ Only list things that changed **relative to the previous release**. If a fix add
 
 After completing a step (before the version bump), suggest a Codex review to the user.
 
-- **Standard review** (`/codex:review`) — CLI, tooling, infrastructure
-- **Adversarial review** (`/codex:adversarial-review`) — core semantics (typechecker, elaborator, interpreter, IR)
+Use `/codex:adversarial-review` for all steps — it accepts a prompt with review context.
 
 Do **not** invoke the review automatically. Instead:
-1. State which review type is appropriate and why
-2. Present the suggested prompt for the user to run
+1. Present the suggested `/codex:adversarial-review` prompt for the user to run
 
 Always include this preamble in the prompt:
 
