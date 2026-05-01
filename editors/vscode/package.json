@@ -1,0 +1,26 @@
+{
+  "name": "weave-language",
+  "displayName": "Weave",
+  "description": "Syntax highlighting for the Weave language",
+  "version": "0.1.0",
+  "publisher": "weave-lang",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "weave",
+        "aliases": ["Weave", "weave"],
+        "extensions": [".weave"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "weave",
+        "scopeName": "source.weave",
+        "path": "./syntaxes/weave.tmLanguage.json"
+      }
+    ]
+  }
+}

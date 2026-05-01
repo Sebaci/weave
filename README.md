@@ -124,6 +124,9 @@ docs/
   ├── spec/          # language specification (v1)
   └── weave-implementation-notes-v1.md  # canonical decisions not in the spec
 
+editors/
+  └── vscode/        # VS Code extension (syntax highlighting, future LSP)
+
 examples/            # runnable Weave programs
 
 src/
