@@ -62,7 +62,11 @@ function diagnoseFile(filePath: string): void {
   const graphResult = buildModuleGraph(filePath);
 
   if (!graphResult.ok) {
+    // Seed every file that was successfully read with an empty list so that
+    // diagnostics from a previous run are cleared when the error moves elsewhere.
     const byFile = new Map<string, import("vscode-languageserver/node").Diagnostic[]>();
+    for (const absPath of graphResult.sources.keys()) byFile.set(absPath, []);
+
     const addDiag = (file: string, diag: import("vscode-languageserver/node").Diagnostic) => {
       if (!byFile.has(file)) byFile.set(file, []);
       byFile.get(file)!.push(diag);

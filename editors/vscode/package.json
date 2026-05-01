@@ -9,8 +9,15 @@
   "main": "./out/extension.js",
   "activationEvents": ["onLanguage:weave"],
   "scripts": {
-    "compile": "tsc -p tsconfig.json",
+    "compile:ext": "tsc -p tsconfig.json",
+    "compile:server": "esbuild ../../src/lsp/server.ts --bundle --platform=node --format=esm --outfile=out/server.mjs",
+    "compile": "npm run compile:ext && npm run compile:server",
     "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
   },
   "contributes": {
     "languages": [

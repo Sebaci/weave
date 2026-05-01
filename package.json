@@ -6,12 +6,14 @@
     "typecheck": "tsc --noEmit",
     "cli": "tsx src/cli/index.ts",
     "lsp": "tsx src/lsp/server.ts",
+    "bundle:lsp": "esbuild src/lsp/server.ts --bundle --platform=node --format=esm --outfile=editors/vscode/out/server.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@types/vscode": "^1.118.0",
+    "esbuild": "^0.28.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"

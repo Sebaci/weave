@@ -2,6 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import {
   LanguageClient,
+  TransportKind,
   type LanguageClientOptions,
   type ServerOptions,
 } from "vscode-languageclient/node";
@@ -9,13 +10,11 @@ import {
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  const root         = context.asAbsolutePath(path.join("..", ".."));
-  const serverScript = path.join(root, "src", "lsp", "server.ts");
-  const tsx          = path.join(root, "node_modules", ".bin", "tsx");
+  const serverModule = context.asAbsolutePath(path.join("out", "server.mjs"));
 
   const serverOptions: ServerOptions = {
-    run:   { command: tsx, args: [serverScript] },
-    debug: { command: tsx, args: [serverScript] },
+    run:   { module: serverModule, transport: TransportKind.ipc },
+    debug: { module: serverModule, transport: TransportKind.ipc },
   };
 
   const clientOptions: LanguageClientOptions = {
