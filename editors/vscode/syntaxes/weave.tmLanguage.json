@@ -5,10 +5,10 @@
   "patterns": [
     { "include": "#comment" },
     { "include": "#string" },
+    { "include": "#def-name" },
     { "include": "#keyword" },
     { "include": "#boolean" },
     { "include": "#number" },
-    { "include": "#def-name" },
     { "include": "#type-name" },
     { "include": "#operator" }
   ],
@@ -49,15 +49,18 @@
       ]
     },
     "def-name": {
-      "match": "(?<=\\bdef\\s{0,32})[a-z_][a-zA-Z0-9_']*",
-      "name": "entity.name.function.weave"
+      "match": "\\b(def)\\s+([a-z_][a-zA-Z0-9_']*)",
+      "captures": {
+        "1": { "name": "keyword.other.weave" },
+        "2": { "name": "entity.name.function.weave" }
+      }
     },
     "type-name": {
       "match": "\\b[A-Z][a-zA-Z0-9_']*\\b",
       "name": "entity.name.type.weave"
     },
     "operator": {
-      "match": ">>>|->|==|<=|>=|&&|\\|\\||[!|.=:<>+\\-*]",
+      "match": ">>>|->|==|!=|<=|>=|&&|\\|\\||[|.=:<>+\\-*/!]",
       "name": "keyword.operator.weave"
     }
   }
