@@ -227,7 +227,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.7.0** — LSP server with live diagnostics.
+Current stage: **v0.7.1** — installable VS Code extension with working LSP.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.1] - 2026-05-01
+
+### Fixed
+- VS Code extension is now installable from a fresh clone without manual steps. `npm run build:ext` installs extension dependencies and compiles; `npm run package:ext` produces a self-contained `.vsix`. Teammates install via **Extensions: Install from VSIX...** in VS Code.
+- Both the extension host and LSP server are now fully bundled (esbuild CJS), so the VSIX requires no `node_modules` at install time.
+- `npm run lsp` (tsx dev path) works correctly: the `createRequire` pattern is preserved for Node ESM compatibility with the CJS `vscode-languageserver` package, while the CJS bundle suppresses the `import.meta` warning via `--define`.
+- `.vscodeignore` ensures only the compiled outputs, grammar, and language configuration are shipped — no source, tsconfig, or stale build artefacts.
+
+---
+
 ## [0.7.0] - 2026-05-01
 
 ### Added
