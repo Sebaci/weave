@@ -9,6 +9,7 @@ import type { Module } from "../surface/ast.ts";
 
 export type ModuleGraphNode = {
   filePath: string;       // absolute path
+  source:   string;       // raw source text (for diagnostics)
   mod:      Module;       // parsed surface AST
   depPaths: string[];     // absolute paths of direct imports (in import order)
 };
@@ -22,7 +23,7 @@ export type ResolverError =
 
 export type ResolveResult =
   | { ok: true;  graph: ModuleGraph }
-  | { ok: false; errors: ResolverError[] };
+  | { ok: false; errors: ResolverError[]; sources: ReadonlyMap<string, string> };
 
 // ---------------------------------------------------------------------------
 // Path resolution
@@ -46,8 +47,9 @@ export function buildModuleGraph(entryFile: string): ResolveResult {
   const absEntry = resolve(entryFile);
   const root     = dirname(absEntry);
 
-  const graph: ModuleGraph      = new Map();
-  const errors: ResolverError[] = [];
+  const graph:   ModuleGraph           = new Map();
+  const errors:  ResolverError[]       = [];
+  const sources: Map<string, string>   = new Map(); // all files read, for diagnostics
 
   // DFS state
   const gray  = new Set<string>(); // in-progress (on current DFS stack)
@@ -68,6 +70,7 @@ export function buildModuleGraph(entryFile: string): ResolveResult {
     let source: string;
     try {
       source = readFileSync(filePath, "utf-8");
+      sources.set(filePath, source);
     } catch {
       errors.push({
         tag:        "not-found",
@@ -106,10 +109,10 @@ export function buildModuleGraph(entryFile: string): ResolveResult {
 
     gray.delete(filePath);
     black.add(filePath);
-    graph.set(filePath, { filePath, mod, depPaths });
+    graph.set(filePath, { filePath, source, mod, depPaths });
   }
 
   visit(absEntry, null);
 
-  return errors.length > 0 ? { ok: false, errors } : { ok: true, graph };
+  return errors.length > 0 ? { ok: false, errors, sources } : { ok: true, graph };
 }

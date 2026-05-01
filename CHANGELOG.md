@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1] - 2026-05-01
+
+### Changed
+- Error messages now include a source snippet with a `^^^` caret pointing at the offending column. Applies to parse errors, type errors, and import-resolution errors.
+
+---
+
 ## [0.4.0] - 2026-05-01
 
 ### Added

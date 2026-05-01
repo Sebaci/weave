@@ -3,8 +3,9 @@ import { showType } from "../typechecker/index.ts";
 import { elaborateAll } from "../elaborator/index.ts";
 import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
-import { buildModuleGraph, type ResolverError } from "../module/resolver.ts";
+import { buildModuleGraph, type ModuleGraph } from "../module/resolver.ts";
 import { checkAll } from "../module/loader.ts";
+import { renderLoadError, renderResolverError } from "./diagnostics.ts";
 
 // ---------------------------------------------------------------------------
 // Host effect bindings supplied by the CLI runtime
@@ -48,18 +49,17 @@ if (command === "check") {
 function runCheck(file: string): void {
   const graphResult = buildModuleGraph(file);
   if (!graphResult.ok) {
-    reportResolverErrors(graphResult.errors);
+    for (const err of graphResult.errors) {
+      console.error(renderResolverError(err, graphResult.sources));
+    }
     process.exit(1);
   }
 
+  const sources = graphSources(graphResult.graph);
   const loadResult = checkAll(graphResult.graph, file);
   if (!loadResult.ok) {
     for (const err of loadResult.errors) {
-      if (err.line !== undefined && err.column !== undefined) {
-        console.error(`${err.filePath}:${err.line}:${err.column}: error: ${err.message}`);
-      } else {
-        console.error(`${err.filePath}: error: ${err.message}`);
-      }
+      console.error(renderLoadError(err, sources.get(err.filePath)));
     }
     process.exit(1);
   }
@@ -71,18 +71,17 @@ function runRun(file: string, defName: string): void {
   // --- Resolve + Parse + Typecheck (all modules) ---
   const graphResult = buildModuleGraph(file);
   if (!graphResult.ok) {
-    reportResolverErrors(graphResult.errors);
+    for (const err of graphResult.errors) {
+      console.error(renderResolverError(err, graphResult.sources));
+    }
     process.exit(1);
   }
 
+  const sources = graphSources(graphResult.graph);
   const loadResult = checkAll(graphResult.graph, file);
   if (!loadResult.ok) {
     for (const err of loadResult.errors) {
-      if (err.line !== undefined && err.column !== undefined) {
-        console.error(`${err.filePath}:${err.line}:${err.column}: error: ${err.message}`);
-      } else {
-        console.error(`${err.filePath}: error: ${err.message}`);
-      }
+      console.error(renderLoadError(err, sources.get(err.filePath)));
     }
     process.exit(1);
   }
@@ -145,16 +144,10 @@ function runRun(file: string, defName: string): void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function reportResolverErrors(errors: ResolverError[]): void {
-  for (const err of errors) {
-    if (err.tag === "not-found") {
-      console.error(`${err.importedBy}: error: cannot find imported module '${err.filePath}'`);
-    } else if (err.tag === "parse-error") {
-      console.error(`${err.filePath}:${err.line}:${err.column}: error: ${err.message}`);
-    } else {
-      console.error(`error: import cycle detected: ${err.cycle.join(" -> ")}`);
-    }
-  }
+function graphSources(graph: ModuleGraph): ReadonlyMap<string, string> {
+  const m = new Map<string, string>();
+  for (const [path, node] of graph) m.set(path, node.source);
+  return m;
 }
 
 function die(message: string): never {
