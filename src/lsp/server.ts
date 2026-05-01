@@ -74,10 +74,15 @@ function publish(
     [...byFile].map(([file, diags]) => [uriOf(file), diags]),
   );
 
-  // Clear diagnostics for URIs that were in this entry's last run but are gone now.
+  // Clear diagnostics for URIs that left this entry's graph AND are not still
+  // owned by any other entry. If another open file's graph still includes the
+  // URI, that entry's last diagnostics remain correct — don't overwrite them.
   const prev = publishedByEntry.get(entry) ?? new Set<string>();
   for (const uri of prev) {
-    if (!byUri.has(uri)) connection.sendDiagnostics({ uri, diagnostics: [] });
+    if (byUri.has(uri)) continue;
+    const ownedByOther = [...publishedByEntry.entries()]
+      .some(([e, uris]) => e !== entry && uris.has(uri));
+    if (!ownedByOther) connection.sendDiagnostics({ uri, diagnostics: [] });
   }
 
   publishedByEntry.set(entry, new Set(byUri.keys()));
