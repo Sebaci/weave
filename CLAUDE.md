@@ -196,9 +196,14 @@ Guidelines:
 When bumping:
 1. Update `package.json` version
 2. Add a `CHANGELOG.md` entry — describe what the step **delivers to users**, not implementation details or review fixes
-3. Commit version + changelog together (code may be in prior commits)
+3. Check `README.md` — update the status section, CLI usage examples, and feature list if the step adds user-visible capabilities; also check the Repository Structure section if new modules or directories were added
+4. Commit version + changelog + readme together (code may be in prior commits)
 
 Never bump without a changelog entry, and never update the changelog without bumping.
+
+#### Changelog philosophy
+
+Only list things that changed **relative to the previous release**. If a fix addresses a bug introduced within the same unreleased batch, fold it into the feature description rather than listing it as a separate "Fixed" or "Changed" entry. A reader should be able to read the changelog as a diff against the prior shipped version.
 
 ### Codex Reviews
 
