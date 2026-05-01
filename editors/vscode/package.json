@@ -4,15 +4,17 @@
   "description": "Language support for the Weave language",
   "version": "0.1.0",
   "publisher": "weave-lang",
+  "repository": { "type": "git", "url": "https://github.com/Sebaci/weave" },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages"],
   "main": "./out/extension.js",
   "activationEvents": ["onLanguage:weave"],
   "scripts": {
-    "compile:ext": "tsc -p tsconfig.json",
-    "compile:server": "esbuild ../../src/lsp/server.ts --bundle --platform=node --format=esm --outfile=out/server.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "compile:ext": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js",
+    "compile:server": "esbuild ../../src/lsp/server.ts --bundle --platform=node --format=cjs --outfile=out/server.js",
     "compile": "npm run compile:ext && npm run compile:server",
-    "package": "vsce package --no-dependencies --allow-missing-repository",
+    "package": "vsce package --no-dependencies",
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {

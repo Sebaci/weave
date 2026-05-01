@@ -10,7 +10,7 @@ import {
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  const serverModule = context.asAbsolutePath(path.join("out", "server.mjs"));
+  const serverModule = context.asAbsolutePath(path.join("out", "server.js"));
 
   const serverOptions: ServerOptions = {
     run:   { module: serverModule, transport: TransportKind.ipc },

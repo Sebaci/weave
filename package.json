@@ -6,7 +6,7 @@
     "typecheck": "tsc --noEmit",
     "cli": "tsx src/cli/index.ts",
     "lsp": "tsx src/lsp/server.ts",
-    "bundle:lsp": "esbuild src/lsp/server.ts --bundle --platform=node --format=esm --outfile=editors/vscode/out/server.mjs",
+    "bundle:lsp": "esbuild src/lsp/server.ts --bundle --platform=node --format=cjs --outfile=editors/vscode/out/server.js",
     "build:ext": "npm --prefix editors/vscode install && npm --prefix editors/vscode run compile",
     "package:ext": "npm --prefix editors/vscode run package",
     "test": "vitest run",

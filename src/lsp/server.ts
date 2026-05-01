@@ -1,24 +1,16 @@
-import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildModuleGraph } from "../module/resolver.ts";
-import { checkAll } from "../module/loader.ts";
-import type { SourceSpan } from "../surface/id.ts";
-
-// vscode-languageserver is CJS; named ESM imports don't work in Node 25 ESM.
-// Use createRequire so the CJS module is loaded via the require() path.
-const _require = createRequire(import.meta.url);
-type VLS  = typeof import("vscode-languageserver/node");
-type VLST = typeof import("vscode-languageserver-textdocument");
-
-const {
+import {
   createConnection,
   TextDocuments,
   ProposedFeatures,
   TextDocumentSyncKind,
   DiagnosticSeverity,
-} = _require("vscode-languageserver/node") as VLS;
-
-const { TextDocument } = _require("vscode-languageserver-textdocument") as VLST;
+  type Diagnostic,
+} from "vscode-languageserver/node";
+import { TextDocument } from "vscode-languageserver-textdocument";
+import { buildModuleGraph } from "../module/resolver.ts";
+import { checkAll } from "../module/loader.ts";
+import type { SourceSpan } from "../surface/id.ts";
 
 // ---------------------------------------------------------------------------
 // Connection setup
@@ -66,7 +58,7 @@ const publishedByEntry = new Map<string, Set<string>>();
 
 function publish(
   entry: string,
-  byFile: Map<string, import("vscode-languageserver/node").Diagnostic[]>,
+  byFile: Map<string, Diagnostic[]>,
 ): void {
   // Convert file paths to URIs so the staleness check and the send use the
   // same key space.
@@ -98,10 +90,10 @@ function diagnoseFile(filePath: string): void {
   if (!graphResult.ok) {
     // Seed every file that was successfully read with an empty list so that
     // diagnostics from a previous run are cleared when the error moves elsewhere.
-    const byFile = new Map<string, import("vscode-languageserver/node").Diagnostic[]>();
+    const byFile = new Map<string, Diagnostic[]>();
     for (const absPath of graphResult.sources.keys()) byFile.set(absPath, []);
 
-    const addDiag = (file: string, diag: import("vscode-languageserver/node").Diagnostic) => {
+    const addDiag = (file: string, diag: Diagnostic) => {
       if (!byFile.has(file)) byFile.set(file, []);
       byFile.get(file)!.push(diag);
     };
@@ -138,7 +130,7 @@ function diagnoseFile(filePath: string): void {
 
   // Initialise empty diagnostic lists for every file in the graph so that
   // cleared errors are removed when a module is fixed.
-  const byFile = new Map<string, import("vscode-languageserver/node").Diagnostic[]>();
+  const byFile = new Map<string, Diagnostic[]>();
   for (const absPath of graphResult.graph.keys()) byFile.set(absPath, []);
 
   const loadResult = checkAll(graphResult.graph, filePath);

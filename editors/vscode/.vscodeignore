@@ -1,5 +1,5 @@
 src/
 tsconfig.json
-out/server.js
+out/server.mjs
 node_modules/
 .vscode/
