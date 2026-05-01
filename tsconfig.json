@@ -8,7 +8,10 @@
     "skipLibCheck": true,
     "types": ["node"],
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "vscode-languageserver/node": ["./node_modules/vscode-languageserver/node.d.ts"]
+    }
   },
   "include": ["src/**/*"]
 }

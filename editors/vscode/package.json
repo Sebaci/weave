@@ -1,11 +1,17 @@
 {
   "name": "weave-language",
   "displayName": "Weave",
-  "description": "Syntax highlighting for the Weave language",
+  "description": "Language support for the Weave language",
   "version": "0.1.0",
   "publisher": "weave-lang",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onLanguage:weave"],
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "vscode:prepublish": "npm run compile"
+  },
   "contributes": {
     "languages": [
       {
