@@ -58,29 +58,32 @@ const ZERO_RANGE = {
 // Diagnosis
 // ---------------------------------------------------------------------------
 
-// URIs that have had diagnostics published in any prior run.
-// Used to send empty arrays to files that leave the module graph,
-// ensuring VS Code clears stale squiggles after an import is removed.
-const publishedUris = new Set<string>();
+// Per-entry published URI sets.
+// Each entry file path maps to the URIs published in its last diagnoseFile run.
+// Scoped per entry so that saving file B never clears diagnostics that belong
+// to a separate graph rooted at file A.
+const publishedByEntry = new Map<string, Set<string>>();
 
 function publish(
+  entry: string,
   byFile: Map<string, import("vscode-languageserver/node").Diagnostic[]>,
 ): void {
-  // Convert file paths to URIs first so the staleness check and the send
-  // use the same key space.
+  // Convert file paths to URIs so the staleness check and the send use the
+  // same key space.
   const byUri = new Map(
     [...byFile].map(([file, diags]) => [uriOf(file), diags]),
   );
 
-  // Clear diagnostics for any URI that is no longer in the current result.
-  for (const uri of publishedUris) {
+  // Clear diagnostics for URIs that were in this entry's last run but are gone now.
+  const prev = publishedByEntry.get(entry) ?? new Set<string>();
+  for (const uri of prev) {
     if (!byUri.has(uri)) connection.sendDiagnostics({ uri, diagnostics: [] });
   }
-  publishedUris.clear();
+
+  publishedByEntry.set(entry, new Set(byUri.keys()));
 
   for (const [uri, diags] of byUri) {
     connection.sendDiagnostics({ uri, diagnostics: diags });
-    publishedUris.add(uri);
   }
 }
 
@@ -124,7 +127,7 @@ function diagnoseFile(filePath: string): void {
       }
     }
 
-    publish(byFile);
+    publish(filePath, byFile);
     return;
   }
 
@@ -148,7 +151,7 @@ function diagnoseFile(filePath: string): void {
     }
   }
 
-  publish(byFile);
+  publish(filePath, byFile);
 }
 
 // ---------------------------------------------------------------------------
