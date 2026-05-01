@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-05-01
+
+### Added
+- Structured diagnostics: `weave check --json` emits machine-readable errors with `code`, `phase`, `file`, `span`, and `message` fields.
+- Error codes: every diagnostic now carries a stable code (`E_TYPE`, `E_PARSE`, `E_UNDEFINED_NAME`, `E_MODULE_NOT_FOUND`, etc.) for use by tooling and scripts.
+- Full source spans on errors: each error carries `span.start` and `span.end` (line/column), not just a point location.
+- Source snippets with caret (`^^^`) pointing at the offending token, with correct alignment for tab-indented source (8-stop tab expansion).
+
+---
+
 ## [0.4.1] - 2026-05-01
 
 ### Changed

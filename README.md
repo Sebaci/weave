@@ -98,6 +98,7 @@ Parse → Typecheck → Elaborate → Graph IR → Interpret
 
 ```bash
 npm run cli -- check <file>             # parse + typecheck (all imported modules)
+npm run cli -- check <file> --json      # machine-readable JSON diagnostics
 npm run cli -- run   <file> --def <name> # full pipeline, Unit-input defs only
 ```
 
@@ -180,7 +181,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.4.0** — module system complete; multi-module execution works end-to-end.
+Current stage: **v0.5.0** — structured diagnostics complete.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -193,6 +194,7 @@ Current stage: **v0.4.0** — module system complete; multi-module execution wor
 * ✅ Module system — import resolution, cycle detection, multi-module typechecking
 * ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
 * ✅ `weave run` with imports (multi-module elaboration + interpretation)
+* ✅ Structured diagnostics — error codes, source spans, source snippets with caret, `--json` output
 * 🚧 Editor tooling, optimization — not yet started
 
 ---
