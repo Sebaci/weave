@@ -156,7 +156,7 @@ function buildEnv(mod: Module, seeds?: ModuleExports): TypeResult<EnvBuildResult
     const eff = resolveConcreteEffect(decl.eff, decl.meta.id);
     if (!eff.ok) { errors.push(...eff.errors); continue; }
     if (eff.value === "pure") {
-      errors.push({ message: "effect declaration must have a non-pure effect level", sourceId: decl.meta.id });
+      errors.push({ code: "E_INVALID_EFFECT_LEVEL", message: "effect declaration must have a non-pure effect level", sourceId: decl.meta.id });
       continue;
     }
     omega.set(qualName, {
@@ -306,7 +306,7 @@ function buildDefSignature(decl: DefDecl, typeDecls: TypeDeclEnv): TypeResult<De
   if (decl.ty.tag === "Arrow") {
     // Arrow type: input and output are explicit
     const arrowTy = tyR.value;
-    if (arrowTy.tag !== "Arrow") return typeError("Internal: expected Arrow", decl.meta.id);
+    if (arrowTy.tag !== "Arrow") return typeError("Internal: expected Arrow", decl.meta.id, "E_INTERNAL");
     const eff = arrowTy.eff;
     const concreteEff = resolveEffLevelFinal(eff, decl.meta.id);
     if (!concreteEff.ok) return concreteEff;
@@ -331,12 +331,12 @@ function buildDefSignature(decl: DefDecl, typeDecls: TypeDeclEnv): TypeResult<De
 
 function buildDefParam(p: DefParam, tyVarNames: string[], typeDecls: TypeDeclEnv): TypeResult<DefParamInfo> {
   if (p.ty.tag !== "Arrow") {
-    return typeError(`Parameter '${p.name}' must have an arrow type`, p.meta.id);
+    return typeError(`Parameter '${p.name}' must have an arrow type`, p.meta.id, "E_INVALID_PARAM_TYPE");
   }
   const tyR = resolveSurfaceType(p.ty, tyVarNames, typeDecls);
   if (!tyR.ok) return tyR;
   const ty = tyR.value;
-  if (ty.tag !== "Arrow") return typeError("Internal: expected Arrow", p.meta.id);
+  if (ty.tag !== "Arrow") return typeError("Internal: expected Arrow", p.meta.id, "E_INTERNAL");
   const effR = resolveEffLevelFinal(ty.eff, p.meta.id);
   if (!effR.ok) return effR;
   return ok({
@@ -379,18 +379,18 @@ function resolveSurfaceType(st: SurfaceType, tyVarNames: string[], typeDecls: Ty
       return ok(resolveBaseType(st.base));
     case "TyVar":
       if (tyVarNames.includes(st.name)) return ok({ tag: "TyVar", name: st.name });
-      return typeError(`Unknown type variable '${st.name}'`, st.meta.id);
+      return typeError(`Unknown type variable '${st.name}'`, st.meta.id, "E_UNKNOWN_TYPE_VAR");
     case "Named": {
       const builtin = resolveBuiltinType(st.name);
       if (builtin !== null) {
-        if (st.args.length > 0) return typeError(`Builtin type ${st.name} takes no arguments`, st.meta.id);
+        if (st.args.length > 0) return typeError(`Builtin type ${st.name} takes no arguments`, st.meta.id, "E_TYPE_ARITY");
         return ok(builtin);
       }
       const argsR = collectResults(st.args.map((a) => resolveSurfaceType(a, tyVarNames, typeDecls)));
       if (!argsR.ok) return argsR;
       // Validate the type name exists
       if (!typeDecls.has(st.name)) {
-        return typeError(`Unknown type '${st.name}'`, st.meta.id);
+        return typeError(`Unknown type '${st.name}'`, st.meta.id, "E_UNKNOWN_TYPE");
       }
       return ok({ tag: "Named", name: st.name, args: argsR.value });
     }
@@ -432,7 +432,7 @@ function resolveSurfaceEffect(eff: SurfaceEffect): EffectLevel {
 
 function resolveConcreteEffect(eff: SurfaceEffect, sourceId: SourceNodeId): TypeResult<ConcreteEffect> {
   if (typeof eff === "string") return ok(eff);
-  return typeError(`Effect variable '${eff.name}' cannot appear here — expected a concrete effect`, sourceId);
+  return typeError(`Effect variable '${eff.name}' cannot appear here — expected a concrete effect`, sourceId, "E_INVALID_EFFECT_VAR");
 }
 
 function resolveEffLevelFinal(eff: EffectLevel, sourceId: SourceNodeId): TypeResult<ConcreteEffect> {
@@ -446,6 +446,7 @@ function resolveEffLevelFinal(eff: EffectLevel, sourceId: SourceNodeId): TypeRes
   return typeError(
     `effect variable '${eff.name}' is not supported in v1 — use a concrete effect ('pure', 'parallel-safe', or 'sequential')`,
     sourceId,
+    "E_INVALID_EFFECT_VAR",
   );
 }
 
@@ -455,7 +456,7 @@ function resolveEffLevelFinal(eff: EffectLevel, sourceId: SourceNodeId): TypeRes
 
 export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
   const defInfo = env.globals.defs.get(decl.name);
-  if (!defInfo) return typeError(`Internal: def '${decl.name}' not in environment`, decl.meta.id);
+  if (!defInfo) return typeError(`Internal: def '${decl.name}' not in environment`, decl.meta.id, "E_INTERNAL");
 
   // For polymorphic defs, freshen type variables before checking
   // (prevents clashes between def-level vars and call-site vars)
@@ -478,6 +479,7 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
     return typeError(
       `Def '${decl.name}': body type ${showType(typedBody.morphTy.output)} does not match declared output type ${showType(morphTy.output)}: ${unifyR.message}`,
       decl.meta.id,
+      "E_TYPE_MISMATCH",
     );
   }
 
@@ -488,6 +490,7 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
     return typeError(
       `Def '${decl.name}': body has effect '${bodyEff}' but declaration promises '${declEff}'`,
       decl.meta.id,
+      "E_EFFECT_MISMATCH",
     );
   }
 
@@ -528,7 +531,7 @@ function bindParamsAsGlobals(env: CheckEnv, params: DefParamInfo[], sourceId: So
  */
 export function checkExpr(expr: Expr, inputTy: Type, env: CheckEnv): TypeResult<TypedExpr> {
   if (expr.steps.length === 0) {
-    return typeError("Empty pipeline", expr.meta.id);
+    return typeError("Empty pipeline", expr.meta.id, "E_EMPTY_PIPELINE");
   }
 
   const typedSteps: TypedStep[] = [];
@@ -580,13 +583,14 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
       // Global ref
       const defInfo = env.globals.defs.get(step.name);
       if (!defInfo) {
-        return typeError(`Undefined name '${step.name}'`, step.meta.id);
+        return typeError(`Undefined name '${step.name}'`, step.meta.id, "E_UNDEFINED_NAME");
       }
       // For a non-parameterised def, its morphTy must unify with the current context
       if (defInfo.params.length > 0) {
         return typeError(
           `'${step.name}' is a higher-order def and requires schema instantiation arguments`,
           step.meta.id,
+          "E_NOT_SCHEMA",
         );
       }
       // Freshen type variables in the def's morphTy for this use site
@@ -597,6 +601,7 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
         return typeError(
           `'${step.name}': expected input ${showType(morphTy.input)}, got ${showType(inputTy)}: ${unifyR.message}`,
           step.meta.id,
+          "E_TYPE_MISMATCH",
         );
       }
       const resolvedOutput = applySubst(morphTy.output, unifyR.subst, unifyR.effSubst);
@@ -611,7 +616,7 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
     // --- Constructor ---
     case "Ctor": {
       const ctorInfo = env.globals.ctors.get(step.name);
-      if (!ctorInfo) return typeError(`Unknown constructor '${step.name}'`, step.meta.id);
+      if (!ctorInfo) return typeError(`Unknown constructor '${step.name}'`, step.meta.id, "E_UNKNOWN_CTOR");
       // Freshen the constructor's type variables for this use site
       const { payloadTy, adtTy } = freshenCtor(ctorInfo);
       const ctorInputTy = payloadTy ?? { tag: "Unit" as const };
@@ -620,6 +625,7 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
         return typeError(
           `Constructor '${step.name}': expected input ${showType(ctorInputTy)}, got ${showType(inputTy)}: ${unifyR.message}`,
           step.meta.id,
+          "E_TYPE_MISMATCH",
         );
       }
       const resolvedAdt = applySubst(adtTy, unifyR.subst);
@@ -636,6 +642,7 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
       if (!fieldTy.ok) return typeError(
         `Projection .${step.field}: ${fieldTy.message}`,
         step.meta.id,
+        "E_UNKNOWN_FIELD",
       );
       return ok(makeStep(
         { tag: "Projection", field: step.field },
@@ -701,7 +708,7 @@ export function checkStep(step: Step, inputTy: Type, env: CheckEnv): TypeResult<
 
     case "Infix": {
       // Infix is handled before dispatch in checkExpr and never reaches here.
-      return typeError(`Internal: Infix step reached checkStep`, step.meta.id);
+      return typeError(`Internal: Infix step reached checkStep`, step.meta.id, "E_INTERNAL");
     }
   }
 }
@@ -728,6 +735,7 @@ function checkBuild(
     const localNames = collectLocalNames(f.expr, env.locals);
     for (const name of localNames) {
       closednessErrors.push({
+        code: "E_BUILD_AMBIENT_REF",
         message: `build field '${f.name}': ambient name '${name}' is not permitted in build expressions (use fanout instead)`,
         sourceId,
       });
@@ -872,6 +880,7 @@ function checkCaseOrFold(
     return typeError(
       `fold: input type '${showType(inputTy)}' is not a recursive ADT`,
       sourceId,
+      "E_NOT_RECURSIVE_ADT",
     );
   }
   const isFold = hint === "fold";
@@ -883,10 +892,10 @@ function checkCaseOrFold(
   const branchCtors = new Set(branches.map((b) => b.ctor));
   const errors: TypeError[] = [];
   for (const name of ctorNames) {
-    if (!branchCtors.has(name)) errors.push({ message: `${isFold ? "fold" : "case"}: missing branch for constructor '${name}'`, sourceId });
+    if (!branchCtors.has(name)) errors.push({ code: "E_MISSING_BRANCH", message: `${isFold ? "fold" : "case"}: missing branch for constructor '${name}'`, sourceId });
   }
   for (const name of branchCtors) {
-    if (!ctorNames.has(name)) errors.push({ message: `${isFold ? "fold" : "case"}: unknown constructor '${name}'`, sourceId });
+    if (!ctorNames.has(name)) errors.push({ code: "E_UNKNOWN_BRANCH", message: `${isFold ? "fold" : "case"}: unknown constructor '${name}'`, sourceId });
   }
   if (errors.length > 0) return fail(errors);
 
@@ -902,7 +911,7 @@ function checkCaseOrFold(
   let effSubst: EffSubst = new Map();
 
   if (info.body.tag !== "Variant") {
-    return typeError(`${isFold ? "fold" : "case"}: input type must be a variant`, sourceId);
+    return typeError(`${isFold ? "fold" : "case"}: input type must be a variant`, sourceId, "E_NOT_VARIANT");
   }
 
   for (const branch of branches) {
@@ -930,7 +939,7 @@ function checkCaseOrFold(
     } else {
       const uR = unify(outputTy, branchOut, subst, effSubst);
       if (!uR.ok) {
-        errors.push({ message: `${isFold ? "fold" : "case"} branch '${branch.ctor}': output type ${showType(branchOut)} does not unify with ${showType(outputTy)}: ${uR.message}`, sourceId });
+        errors.push({ code: "E_TYPE_MISMATCH", message: `${isFold ? "fold" : "case"} branch '${branch.ctor}': output type ${showType(branchOut)} does not unify with ${showType(outputTy)}: ${uR.message}`, sourceId });
         continue;
       }
       subst = uR.subst; effSubst = uR.effSubst;
@@ -941,7 +950,7 @@ function checkCaseOrFold(
     if (isFold && carrierVar !== null && outputTy !== null) {
       const uR = unify({ tag: "TyVar", name: carrierVar }, outputTy, subst, effSubst);
       if (!uR.ok) {
-        errors.push({ message: `fold carrier type conflict: ${uR.message}`, sourceId });
+        errors.push({ code: "E_TYPE_MISMATCH", message: `fold carrier type conflict: ${uR.message}`, sourceId });
         continue;
       }
       subst = uR.subst; effSubst = uR.effSubst;
@@ -956,7 +965,7 @@ function checkCaseOrFold(
   }
 
   if (errors.length > 0) return fail(errors);
-  if (outputTy === null) return typeError(`${isFold ? "fold" : "case"}: no branches`, sourceId);
+  if (outputTy === null) return typeError(`${isFold ? "fold" : "case"}: no branches`, sourceId, "E_NO_BRANCHES");
 
   const finalOutput = applySubst(outputTy, subst, effSubst);
 
@@ -999,12 +1008,12 @@ function checkCaseField(
   sourceId: SourceNodeId,
 ): TypeResult<TypedStep> {
   if (inputTy.tag !== "Record") {
-    return typeError(`case .${field}: input must be a record type, got ${showType(inputTy)}`, sourceId);
+    return typeError(`case .${field}: input must be a record type, got ${showType(inputTy)}`, sourceId, "E_NOT_RECORD");
   }
 
   const kField = inputTy.fields.find((f) => f.name === field);
   if (!kField) {
-    return typeError(`case .${field}: no field '${field}' in ${showType(inputTy)}`, sourceId);
+    return typeError(`case .${field}: no field '${field}' in ${showType(inputTy)}`, sourceId, "E_UNKNOWN_FIELD");
   }
 
   // ρ = input record minus field k
@@ -1019,19 +1028,19 @@ function checkCaseField(
     ? ok({ info: { name: "Bool", params: [] as string[], isRecursive: false, sourceId, body: { tag: "Variant" as const, ctors: boolCtors } }, typeArgs: new Map<string, Type>() })
     : resolveVariant(kField.ty, env.typeDecls, sourceId);
   if (!variantInfo.ok) {
-    return typeError(`case .${field}: field '${field}' must be a variant type, got ${showType(kField.ty)}`, sourceId);
+    return typeError(`case .${field}: field '${field}' must be a variant type, got ${showType(kField.ty)}`, sourceId, "E_NOT_VARIANT");
   }
   const { info, typeArgs } = variantInfo.value;
 
   if (info.body.tag !== "Variant") {
-    return typeError(`case .${field}: field type must be a variant`, sourceId);
+    return typeError(`case .${field}: field type must be a variant`, sourceId, "E_NOT_VARIANT");
   }
 
   const ctorNames  = new Set(info.body.ctors.map((c) => c.ctorName));
   const branchCtors = new Set(branches.map((b) => b.ctor));
   const errors: TypeError[] = [];
-  for (const name of ctorNames)  { if (!branchCtors.has(name)) errors.push({ message: `case .${field}: missing branch for '${name}'`, sourceId }); }
-  for (const name of branchCtors) { if (!ctorNames.has(name))  errors.push({ message: `case .${field}: unknown constructor '${name}'`, sourceId }); }
+  for (const name of ctorNames)  { if (!branchCtors.has(name)) errors.push({ code: "E_MISSING_BRANCH", message: `case .${field}: missing branch for '${name}'`, sourceId }); }
+  for (const name of branchCtors) { if (!ctorNames.has(name))  errors.push({ code: "E_UNKNOWN_BRANCH", message: `case .${field}: unknown constructor '${name}'`, sourceId }); }
   if (errors.length > 0) return fail(errors);
 
   const typedBranches: TypedBranch[] = [];
@@ -1052,14 +1061,14 @@ function checkCaseField(
       branchInputTy = contextTy;
     } else {
       if (piTy.tag !== "Record") {
-        errors.push({ message: `case .${field}: constructor '${branch.ctor}' has non-record payload ${showType(piTy)}`, sourceId });
+        errors.push({ code: "E_NOT_RECORD", message: `case .${field}: constructor '${branch.ctor}' has non-record payload ${showType(piTy)}`, sourceId });
         continue;
       }
       // Check field disjointness: fields(Pi) ∩ fields(ρ) = ∅
       const piFieldNames = new Set(piTy.fields.map((f) => f.name));
       for (const rhoF of contextTy.fields) {
         if (piFieldNames.has(rhoF.name)) {
-          errors.push({ message: `case .${field}: payload field '${rhoF.name}' of '${branch.ctor}' collides with context row`, sourceId });
+          errors.push({ code: "E_FIELD_COLLISION", message: `case .${field}: payload field '${rhoF.name}' of '${branch.ctor}' collides with context row`, sourceId });
         }
       }
       branchInputTy = { tag: "Record", fields: [...piTy.fields, ...contextTy.fields], rest: null };
@@ -1076,7 +1085,7 @@ function checkCaseField(
     } else {
       const uR = unify(outputTy, branchOut, subst, effSubst);
       if (!uR.ok) {
-        errors.push({ message: `case .${field} branch '${branch.ctor}': output ${showType(branchOut)} does not unify with ${showType(outputTy)}: ${uR.message}`, sourceId });
+        errors.push({ code: "E_TYPE_MISMATCH", message: `case .${field} branch '${branch.ctor}': output ${showType(branchOut)} does not unify with ${showType(outputTy)}: ${uR.message}`, sourceId });
         continue;
       }
       subst = uR.subst; effSubst = uR.effSubst;
@@ -1087,7 +1096,7 @@ function checkCaseField(
   }
 
   if (errors.length > 0) return fail(errors);
-  if (outputTy === null) return typeError(`case .${field}: no branches`, sourceId);
+  if (outputTy === null) return typeError(`case .${field}: no branches`, sourceId, "E_NO_BRANCHES");
 
   const finalOutput = applySubst(outputTy, subst, effSubst);
   const finalContextTy = applySubst(contextTy, subst, effSubst);
@@ -1127,7 +1136,7 @@ function checkCaseFieldHandler(
 
   // Record handler: { binders } >>> body with branchInputTy = merge(Pi, ρ)
   if (branchInputTy.tag !== "Record") {
-    return typeError(`case .field: record handler expects a record branch input, got ${showType(branchInputTy)}`, handler.meta.id);
+    return typeError(`case .field: record handler expects a record branch input, got ${showType(branchInputTy)}`, handler.meta.id, "E_NOT_RECORD");
   }
   const payloadFields = new Map(branchInputTy.fields.map((f) => [f.name, f.ty]));
 
@@ -1138,7 +1147,7 @@ function checkCaseFieldHandler(
   for (const binder of handler.binders) {
     const fieldTy = payloadFields.get(binder.name);
     if (fieldTy === undefined) {
-      errors.push({ message: `Field '${binder.name}' not found in branch input type ${showType(branchInputTy)}`, sourceId: handler.meta.id });
+      errors.push({ code: "E_UNKNOWN_FIELD", message: `Field '${binder.name}' not found in branch input type ${showType(branchInputTy)}`, sourceId: handler.meta.id });
       continue;
     }
     if (binder.tag === "Bind") {
@@ -1180,7 +1189,7 @@ function checkHandler(
   // Record handler: { binders } >>> body
   // payloadTy must be a record
   if (payloadTy.tag !== "Record") {
-    return typeError(`Record handler expects a record payload, got ${showType(payloadTy)}`, handler.meta.id);
+    return typeError(`Record handler expects a record payload, got ${showType(payloadTy)}`, handler.meta.id, "E_NOT_RECORD");
   }
   const payloadFields = new Map(payloadTy.fields.map((f) => [f.name, f.ty]));
 
@@ -1192,7 +1201,7 @@ function checkHandler(
   for (const binder of handler.binders) {
     const fieldTy = payloadFields.get(binder.name);
     if (fieldTy === undefined) {
-      errors.push({ message: `Field '${binder.name}' not found in payload type ${showType(payloadTy)}`, sourceId: handler.meta.id });
+      errors.push({ code: "E_UNKNOWN_FIELD", message: `Field '${binder.name}' not found in payload type ${showType(payloadTy)}`, sourceId: handler.meta.id });
       continue;
     }
     if (binder.tag === "Bind") {
@@ -1225,7 +1234,7 @@ function checkOver(
   // Input must be a record containing field `field`
   const fieldTyR = lookupField(inputTy, field, env);
   if (!fieldTyR.ok) {
-    return typeError(`over .${field}: ${fieldTyR.message}`, sourceId);
+    return typeError(`over .${field}: ${fieldTyR.message}`, sourceId, "E_UNKNOWN_FIELD");
   }
   const fieldTy = fieldTyR.ty;
 
@@ -1260,6 +1269,7 @@ function checkLet(
     return typeError(
       `let '${name}': let is only valid inside a { fields } >>> destructor scope or another let`,
       sourceId,
+      "E_LET_INVALID_SCOPE",
     );
   }
 
@@ -1300,6 +1310,7 @@ function checkLet(
       return typeError(
         `let '${name}': binding is used ${useCount} times but its RHS has effect '${rhsEff}'. A non-pure let binding may be used at most once.`,
         sourceId,
+        "E_LET_DUPLICATE_USE",
       );
     }
   }
@@ -1394,7 +1405,7 @@ function checkPerform(
   const qualName = op.join(".");
   const entry = env.omega.get(qualName);
   if (!entry) {
-    return typeError(`Unknown effect operation '${qualName}'`, sourceId);
+    return typeError(`Unknown effect operation '${qualName}'`, sourceId, "E_UNKNOWN_EFFECT");
   }
   // Input must unify with operation's declared input type
   const uR = unify(entry.inputTy, inputTy);
@@ -1402,6 +1413,7 @@ function checkPerform(
     return typeError(
       `perform ${qualName}: expected input ${showType(entry.inputTy)}, got ${showType(inputTy)}: ${uR.message}`,
       sourceId,
+      "E_TYPE_MISMATCH",
     );
   }
   return ok(makeStep(
@@ -1419,9 +1431,9 @@ function checkSchemaInst(
   defName: string, args: SchemaArg[], inputTy: Type, env: CheckEnv, sourceId: SourceNodeId,
 ): TypeResult<TypedStep> {
   const defInfo = env.globals.defs.get(defName);
-  if (!defInfo) return typeError(`Unknown def '${defName}'`, sourceId);
+  if (!defInfo) return typeError(`Unknown def '${defName}'`, sourceId, "E_UNKNOWN_DEF");
   if (defInfo.params.length === 0) {
-    return typeError(`'${defName}' is not a higher-order def (no parameters)`, sourceId);
+    return typeError(`'${defName}' is not a higher-order def (no parameters)`, sourceId, "E_NOT_SCHEMA");
   }
 
   // Match args by name, all-or-nothing
@@ -1429,12 +1441,12 @@ function checkSchemaInst(
   const errors: TypeError[] = [];
   for (const param of defInfo.params) {
     if (!argMap.has(param.name)) {
-      errors.push({ message: `Schema instantiation of '${defName}': missing argument '${param.name}'`, sourceId });
+      errors.push({ code: "E_SCHEMA_MISSING_ARG", message: `Schema instantiation of '${defName}': missing argument '${param.name}'`, sourceId });
     }
   }
   for (const arg of args) {
     if (!defInfo.params.find((p) => p.name === arg.name)) {
-      errors.push({ message: `Schema instantiation of '${defName}': unknown argument '${arg.name}'`, sourceId });
+      errors.push({ code: "E_SCHEMA_UNKNOWN_ARG", message: `Schema instantiation of '${defName}': unknown argument '${arg.name}'`, sourceId });
     }
   }
   if (errors.length > 0) return fail(errors);
@@ -1459,13 +1471,13 @@ function checkSchemaInst(
     const paramOutput = applySubst(param.morphTy.output, subst, effSubst);
     const uIn = unify(paramInput, typedArg.morphTy.input, subst, effSubst);
     if (!uIn.ok) {
-      errors.push({ message: `Argument '${param.name}': input type mismatch: ${uIn.message}`, sourceId: arg.meta.id });
+      errors.push({ code: "E_TYPE_MISMATCH", message: `Argument '${param.name}': input type mismatch: ${uIn.message}`, sourceId: arg.meta.id });
       continue;
     }
     subst = uIn.subst; effSubst = uIn.effSubst;
     const uOut = unify(applySubst(paramOutput, subst, effSubst), typedArg.morphTy.output, subst, effSubst);
     if (!uOut.ok) {
-      errors.push({ message: `Argument '${param.name}': output type mismatch: ${uOut.message}`, sourceId: arg.meta.id });
+      errors.push({ code: "E_TYPE_MISMATCH", message: `Argument '${param.name}': output type mismatch: ${uOut.message}`, sourceId: arg.meta.id });
       continue;
     }
     subst = uOut.subst; effSubst = uOut.effSubst;
@@ -1473,7 +1485,7 @@ function checkSchemaInst(
     const paramEff = applyEffSubst(param.morphTy.eff, effSubst);
     const uEff = unifyEffect(paramEff, typedArg.morphTy.eff, effSubst);
     if (!uEff.ok) {
-      errors.push({ message: `Argument '${param.name}': effect mismatch`, sourceId: arg.meta.id });
+      errors.push({ code: "E_EFFECT_MISMATCH", message: `Argument '${param.name}': effect mismatch`, sourceId: arg.meta.id });
       continue;
     }
     effSubst = uEff.effSubst;
@@ -1489,7 +1501,7 @@ function checkSchemaInst(
   // Unify the resolved input with the current inputTy
   const uIn = unify(resolvedInput, inputTy, subst, effSubst);
   if (!uIn.ok) {
-    return typeError(`Schema instantiation of '${defName}': input type mismatch: ${uIn.message}`, sourceId);
+    return typeError(`Schema instantiation of '${defName}': input type mismatch: ${uIn.message}`, sourceId, "E_TYPE_MISMATCH");
   }
   const finalSubst = uIn.subst;
   const finalEffSubst = uIn.effSubst;
@@ -1521,6 +1533,7 @@ function handleInfix(
     return typeError(
       `Unknown infix operator '${op}'. Builtin operators: ${BUILTIN_OPS.join(", ")}`,
       sourceId,
+      "E_UNDEFINED_NAME",
     );
   }
 
@@ -1541,13 +1554,14 @@ function handleInfix(
     return typeError(
       `Operator '${op}': operand types ${showType(leftTy)} and ${showType(rightTy)} do not unify: ${uR.message}`,
       sourceId,
+      "E_TYPE_MISMATCH",
     );
   }
   const operandTy = applySubst(leftTy, uR.subst, uR.effSubst);
 
   const sig = entry.signature(operandTy);
   if (!sig) {
-    return typeError(`Operator '${op}' cannot be applied to type ${showType(operandTy)}`, sourceId);
+    return typeError(`Operator '${op}' cannot be applied to type ${showType(operandTy)}`, sourceId, "E_TYPE_MISMATCH");
   }
 
   const fanoutFields: TypedFanoutField[] = [
@@ -1825,11 +1839,11 @@ function resolveVariant(
   inputTy: Type, typeDecls: TypeDeclEnv, sourceId: SourceNodeId,
 ): TypeResult<VariantResolution> {
   if (inputTy.tag !== "Named") {
-    return typeError(`case/fold requires a variant input type, got ${showType(inputTy)}`, sourceId);
+    return typeError(`case/fold requires a variant input type, got ${showType(inputTy)}`, sourceId, "E_NOT_VARIANT");
   }
   const info = typeDecls.get(inputTy.name);
-  if (!info) return typeError(`Unknown type '${inputTy.name}'`, sourceId);
-  if (info.body.tag !== "Variant") return typeError(`'${inputTy.name}' is not a variant type`, sourceId);
+  if (!info) return typeError(`Unknown type '${inputTy.name}'`, sourceId, "E_UNKNOWN_TYPE");
+  if (info.body.tag !== "Variant") return typeError(`'${inputTy.name}' is not a variant type`, sourceId, "E_NOT_VARIANT");
 
   // Build type argument substitution
   const typeArgs: Subst = new Map();

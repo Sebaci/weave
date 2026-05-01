@@ -4,16 +4,19 @@ import type { DefInfo, CtorInfo, TypeDeclInfo, TypeDeclEnv, Omega } from "../typ
 import type { TypedModule, TypedTypeDecl } from "../typechecker/typed-ast.ts";
 import { buildSpanMap } from "../surface/span-map.ts";
 import type { ModuleGraph } from "./resolver.ts";
+import type { ErrorCode } from "../typechecker/errors.ts";
+import type { SourceSpan } from "../surface/id.ts";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type LoadError = {
+  code:     ErrorCode;
+  phase:    "resolve" | "typecheck" | "elaborate";
   filePath: string;
   message:  string;
-  line?:    number;
-  column?:  number;
+  span?:    SourceSpan;
 };
 
 export type LoadResult =
@@ -136,21 +139,21 @@ function mergeExports(
   for (const exp of allExports) {
     for (const [k, v] of exp.defs) {
       if (!k.includes(".") && defs.has(k)) {
-        errors.push({ filePath, message: `Ambiguous import: name '${k}' is exported by multiple modules` });
+        errors.push({ code: "E_AMBIGUOUS_IMPORT", phase: "resolve", filePath, message: `Ambiguous import: name '${k}' is exported by multiple modules` });
       } else {
         defs.set(k, v);
       }
     }
     for (const [k, v] of exp.ctors) {
       if (ctors.has(k)) {
-        errors.push({ filePath, message: `Ambiguous import: constructor '${k}' is exported by multiple modules` });
+        errors.push({ code: "E_AMBIGUOUS_IMPORT", phase: "resolve", filePath, message: `Ambiguous import: constructor '${k}' is exported by multiple modules` });
       } else {
         ctors.set(k, v);
       }
     }
     for (const [k, v] of exp.typeDecls) {
       if (typeDecls.has(k)) {
-        errors.push({ filePath, message: `Ambiguous import: type '${k}' is exported by multiple modules` });
+        errors.push({ code: "E_AMBIGUOUS_IMPORT", phase: "resolve", filePath, message: `Ambiguous import: type '${k}' is exported by multiple modules` });
       } else {
         typeDecls.set(k, v);
       }
@@ -199,12 +202,12 @@ export function checkAll(graph: ModuleGraph, entryFile: string): LoadResult {
 
     if (!result.ok) {
       for (const err of result.errors) {
-        const span = err.span ?? spanMap.get(err.sourceId);
         errors.push({
+          code:    err.code,
+          phase:   "typecheck",
           filePath,
           message: err.message,
-          line:    span?.start.line,
-          column:  span?.start.column,
+          span:    err.span ?? spanMap.get(err.sourceId),
         });
       }
     } else {

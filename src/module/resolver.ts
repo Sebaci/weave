@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { parseModule } from "../parser/parse.ts";
 import type { Module } from "../surface/ast.ts";
+import type { SourceSpan } from "../surface/id.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,7 +19,7 @@ export type ModuleGraph = Map<string, ModuleGraphNode>; // keyed by absolute fil
 
 export type ResolverError =
   | { tag: "not-found";   filePath: string; importedBy: string }
-  | { tag: "parse-error"; filePath: string; message: string; line: number; column: number }
+  | { tag: "parse-error"; filePath: string; message: string; span: SourceSpan }
   | { tag: "cycle";       cycle: string[] };
 
 export type ResolveResult =
@@ -85,11 +86,10 @@ export function buildModuleGraph(entryFile: string): ResolveResult {
     if (!parseResult.ok) {
       for (const err of parseResult.errors) {
         errors.push({
-          tag:      "parse-error",
+          tag:     "parse-error",
           filePath,
-          message:  err.message,
-          line:     err.span.start.line,
-          column:   err.span.start.column,
+          message: err.message,
+          span:    err.span,
         });
       }
       black.add(filePath);

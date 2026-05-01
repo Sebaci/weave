@@ -4,8 +4,12 @@ import { elaborateAll } from "../elaborator/index.ts";
 import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
 import { buildModuleGraph, type ModuleGraph } from "../module/resolver.ts";
-import { checkAll } from "../module/loader.ts";
-import { renderLoadError, renderResolverError } from "./diagnostics.ts";
+import { checkAll, type LoadError } from "../module/loader.ts";
+import {
+  renderLoadError, renderResolverError,
+  loadErrorToJson, resolverErrorToJson,
+  type JsonOutput,
+} from "./diagnostics.ts";
 
 // ---------------------------------------------------------------------------
 // Host effect bindings supplied by the CLI runtime
@@ -26,10 +30,13 @@ const HOST_EFFECTS: EffectHandlers = new Map([
 const [,, command, filePath, ...rest] = process.argv;
 
 if (command === "check") {
-  if (!filePath || rest.length > 0) {
-    die("Usage: npm run cli -- check <file>");
+  const jsonFlag = rest.indexOf("--json");
+  const jsonMode = jsonFlag !== -1;
+  const remaining = rest.filter((_, i) => i !== jsonFlag);
+  if (!filePath || remaining.length > 0) {
+    die("Usage: npm run cli -- check <file> [--json]");
   }
-  runCheck(filePath);
+  runCheck(filePath, jsonMode);
 } else if (command === "run") {
   if (!filePath || rest.length !== 2 || rest[0] !== "--def" || !rest[1]) {
     die("Usage: npm run cli -- run <file> --def <name>");
@@ -37,7 +44,7 @@ if (command === "check") {
   runRun(filePath, rest[1]);
 } else {
   console.error("Usage:");
-  console.error("  npm run cli -- check <file>");
+  console.error("  npm run cli -- check <file> [--json]");
   console.error("  npm run cli -- run <file> --def <name>");
   process.exit(1);
 }
@@ -46,11 +53,15 @@ if (command === "check") {
 // Commands
 // ---------------------------------------------------------------------------
 
-function runCheck(file: string): void {
+function runCheck(file: string, json: boolean): void {
   const graphResult = buildModuleGraph(file);
   if (!graphResult.ok) {
-    for (const err of graphResult.errors) {
-      console.error(renderResolverError(err, graphResult.sources));
+    if (json) {
+      emitJson({ ok: false, errors: graphResult.errors.map(resolverErrorToJson) });
+    } else {
+      for (const err of graphResult.errors) {
+        console.error(renderResolverError(err, graphResult.sources));
+      }
     }
     process.exit(1);
   }
@@ -58,13 +69,21 @@ function runCheck(file: string): void {
   const sources = graphSources(graphResult.graph);
   const loadResult = checkAll(graphResult.graph, file);
   if (!loadResult.ok) {
-    for (const err of loadResult.errors) {
-      console.error(renderLoadError(err, sources.get(err.filePath)));
+    if (json) {
+      emitJson({ ok: false, errors: loadResult.errors.map(loadErrorToJson) });
+    } else {
+      for (const err of loadResult.errors) {
+        console.error(renderLoadError(err, sources.get(err.filePath)));
+      }
     }
     process.exit(1);
   }
 
-  console.log(`${file}: OK`);
+  if (json) {
+    emitJson({ ok: true });
+  } else {
+    console.log(`${file}: OK`);
+  }
 }
 
 function runRun(file: string, defName: string): void {
@@ -107,7 +126,8 @@ function runRun(file: string, defName: string): void {
   const elabResult = elaborateAll(loadResult.modules);
   if (!elabResult.ok) {
     for (const err of elabResult.errors) {
-      console.error(`${file}: elaboration error: ${err.message}`);
+      const loadErr: LoadError = { code: err.code, phase: "elaborate", filePath: file, message: err.message, span: err.span };
+      console.error(renderLoadError(loadErr, undefined));
     }
     process.exit(1);
   }
@@ -148,6 +168,10 @@ function graphSources(graph: ModuleGraph): ReadonlyMap<string, string> {
   const m = new Map<string, string>();
   for (const [path, node] of graph) m.set(path, node.source);
   return m;
+}
+
+function emitJson(output: JsonOutput): void {
+  process.stdout.write(JSON.stringify(output, null, 2) + "\n");
 }
 
 function die(message: string): never {

@@ -210,6 +210,7 @@ function elaborateDef(
   const vr = validateGraph(graph);
   if (!vr.ok) {
     return fail(vr.errors.map((e) => ({
+      code:    "E_ELABORATION" as const,
       message: `IR validation (${e.rule}): ${e.message}`,
       sourceId: def.sourceId,
     })));

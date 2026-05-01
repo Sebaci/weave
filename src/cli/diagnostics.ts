@@ -2,7 +2,28 @@ import type { LoadError } from "../module/loader.ts";
 import type { ResolverError } from "../module/resolver.ts";
 
 // ---------------------------------------------------------------------------
-// Source snippet rendering
+// Snippet rendering helpers
+// ---------------------------------------------------------------------------
+
+function renderSnippet(source: string, line: number, column: number): string {
+  const lines = source.split("\n");
+  const lineIdx = line - 1; // 1-based → 0-based
+  if (lineIdx < 0 || lineIdx >= lines.length) return "";
+
+  const srcLine = lines[lineIdx];
+  const lineLabel = String(line);
+  const gutterWidth = lineLabel.length + 1;
+  const gutter = " ".repeat(gutterWidth);
+  const caretOffset = " ".repeat(Math.max(0, column - 1));
+
+  return [
+    `  ${lineLabel} | ${srcLine}`,
+    `  ${gutter}  ${caretOffset}^^^`,
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Public renderers
 // ---------------------------------------------------------------------------
 
 /**
@@ -17,32 +38,18 @@ import type { ResolverError } from "../module/resolver.ts";
  *   file.weave: error: Ambiguous import: ...
  */
 export function renderLoadError(err: LoadError, source: string | undefined): string {
-  const header = err.line !== undefined && err.column !== undefined
-    ? `${err.filePath}:${err.line}:${err.column}: error: ${err.message}`
+  const { line, col } = err.span
+    ? { line: err.span.start.line, col: err.span.start.column }
+    : { line: undefined, col: undefined };
+
+  const header = line !== undefined && col !== undefined
+    ? `${err.filePath}:${line}:${col}: error: ${err.message}`
     : `${err.filePath}: error: ${err.message}`;
 
-  if (!source || err.line === undefined || err.column === undefined) {
-    return header;
-  }
+  if (!source || line === undefined || col === undefined) return header;
 
-  const lines = source.split("\n");
-  const lineIdx = err.line - 1; // lines are 1-based
-  if (lineIdx < 0 || lineIdx >= lines.length) return header;
-
-  const srcLine = lines[lineIdx];
-  const lineLabel = String(err.line);
-  const gutterWidth = lineLabel.length + 1; // " 4 |" → width of "4 |" prefix
-  const gutter = " ".repeat(gutterWidth);
-
-  // Caret under the column; column is 1-based
-  const caretOffset = " ".repeat(Math.max(0, err.column - 1));
-  const caret = "^^^";
-
-  return [
-    header,
-    `  ${lineLabel} | ${srcLine}`,
-    `  ${gutter}  ${caretOffset}${caret}`,
-  ].join("\n");
+  const snippet = renderSnippet(source, line, col);
+  return snippet ? `${header}\n${snippet}` : header;
 }
 
 /**
@@ -60,23 +67,56 @@ export function renderResolverError(
     return `error: import cycle detected: ${err.cycle.join(" -> ")}`;
   }
   // parse-error
-  const header = `${err.filePath}:${err.line}:${err.column}: error: ${err.message}`;
+  const { line, column } = err.span.start;
+  const header = `${err.filePath}:${line}:${column}: error: ${err.message}`;
   const source = sources.get(err.filePath);
   if (!source) return header;
 
-  const lines = source.split("\n");
-  const lineIdx = err.line - 1;
-  if (lineIdx < 0 || lineIdx >= lines.length) return header;
+  const snippet = renderSnippet(source, line, column);
+  return snippet ? `${header}\n${snippet}` : header;
+}
 
-  const srcLine = lines[lineIdx];
-  const lineLabel = String(err.line);
-  const gutterWidth = lineLabel.length + 1;
-  const gutter = " ".repeat(gutterWidth);
-  const caretOffset = " ".repeat(Math.max(0, err.column - 1));
+// ---------------------------------------------------------------------------
+// JSON output
+// ---------------------------------------------------------------------------
 
-  return [
-    header,
-    `  ${lineLabel} | ${srcLine}`,
-    `  ${gutter}  ${caretOffset}^^^`,
-  ].join("\n");
+export type JsonError = {
+  code:    string;
+  phase:   string;
+  file:    string;
+  span?:   { start: { line: number; column: number }; end: { line: number; column: number } };
+  message: string;
+};
+
+export type JsonOutput =
+  | { ok: true }
+  | { ok: false; errors: JsonError[] };
+
+export function loadErrorToJson(err: LoadError): JsonError {
+  return {
+    code:    err.code,
+    phase:   err.phase,
+    file:    err.filePath,
+    span:    err.span
+      ? { start: err.span.start, end: err.span.end }
+      : undefined,
+    message: err.message,
+  };
+}
+
+export function resolverErrorToJson(err: ResolverError): JsonError {
+  if (err.tag === "not-found") {
+    return { code: "E_MODULE_NOT_FOUND", phase: "resolve", file: err.importedBy, message: `cannot find imported module '${err.filePath}'` };
+  }
+  if (err.tag === "cycle") {
+    return { code: "E_IMPORT_CYCLE", phase: "resolve", file: err.cycle[0] ?? "", message: `import cycle detected: ${err.cycle.join(" -> ")}` };
+  }
+  // parse-error
+  return {
+    code:    "E_PARSE",
+    phase:   "parse",
+    file:    err.filePath,
+    span:    { start: err.span.start, end: err.span.end },
+    message: err.message,
+  };
 }
