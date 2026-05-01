@@ -94,15 +94,32 @@ Parse → Typecheck → Elaborate → Graph IR → Interpret
 
 ---
 
-## 💻 Usage
+## 💻 Getting Started
+
+### Prerequisites
+
+* Node.js 18+
+* npm
+
+### Setup
 
 ```bash
-npm run cli -- check <file>             # parse + typecheck (all imported modules)
-npm run cli -- check <file> --json      # machine-readable JSON diagnostics
+git clone <repo>
+cd weave
+npm install
+```
+
+That's it for the CLI. No global install required.
+
+### CLI
+
+```bash
+npm run cli -- check <file>              # parse + typecheck (all imported modules)
+npm run cli -- check <file> --json       # machine-readable JSON diagnostics
 npm run cli -- run   <file> --def <name> # full pipeline, Unit-input defs only
 ```
 
-Example:
+Examples:
 
 ```bash
 npm run cli -- check examples/hello.weave
@@ -114,6 +131,31 @@ Multi-module programs work as long as imported files are resolvable relative to 
 ```bash
 npm run cli -- check examples/main.weave   # resolves import Foo.Bar → examples/Foo/Bar.weave
 ```
+
+### VS Code Extension
+
+The extension provides syntax highlighting and live diagnostics (via LSP) on save.
+
+**Install from a packaged `.vsix`** (recommended for teammates):
+
+```bash
+npm run build:ext     # install extension deps + compile
+npm run package:ext   # produces editors/vscode/weave-language-*.vsix
+```
+
+Then in VS Code: **Extensions → ⋯ → Install from VSIX** and select the generated file.
+
+Or from the terminal:
+
+```bash
+code --install-extension editors/vscode/weave-language-*.vsix
+```
+
+**Development install** (load the extension directly from source):
+
+1. Run `npm run build:ext` once to compile.
+2. Open `editors/vscode/` as a workspace in VS Code.
+3. Press `F5` to launch an Extension Development Host with the extension loaded.
 
 ---
 

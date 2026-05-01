@@ -1,0 +1,5 @@
+src/
+tsconfig.json
+out/server.js
+node_modules/
+.vscode/

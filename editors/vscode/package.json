@@ -12,10 +12,17 @@
     "compile:ext": "tsc -p tsconfig.json",
     "compile:server": "esbuild ../../src/lsp/server.ts --bundle --platform=node --format=esm --outfile=out/server.mjs",
     "compile": "npm run compile:ext && npm run compile:server",
+    "package": "vsce package --no-dependencies --allow-missing-repository",
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1",
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"
   },
