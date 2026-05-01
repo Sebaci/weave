@@ -58,6 +58,32 @@ const ZERO_RANGE = {
 // Diagnosis
 // ---------------------------------------------------------------------------
 
+// URIs that have had diagnostics published in any prior run.
+// Used to send empty arrays to files that leave the module graph,
+// ensuring VS Code clears stale squiggles after an import is removed.
+const publishedUris = new Set<string>();
+
+function publish(
+  byFile: Map<string, import("vscode-languageserver/node").Diagnostic[]>,
+): void {
+  // Convert file paths to URIs first so the staleness check and the send
+  // use the same key space.
+  const byUri = new Map(
+    [...byFile].map(([file, diags]) => [uriOf(file), diags]),
+  );
+
+  // Clear diagnostics for any URI that is no longer in the current result.
+  for (const uri of publishedUris) {
+    if (!byUri.has(uri)) connection.sendDiagnostics({ uri, diagnostics: [] });
+  }
+  publishedUris.clear();
+
+  for (const [uri, diags] of byUri) {
+    connection.sendDiagnostics({ uri, diagnostics: diags });
+    publishedUris.add(uri);
+  }
+}
+
 function diagnoseFile(filePath: string): void {
   const graphResult = buildModuleGraph(filePath);
 
@@ -98,9 +124,7 @@ function diagnoseFile(filePath: string): void {
       }
     }
 
-    for (const [file, diags] of byFile) {
-      connection.sendDiagnostics({ uri: uriOf(file), diagnostics: diags });
-    }
+    publish(byFile);
     return;
   }
 
@@ -124,9 +148,7 @@ function diagnoseFile(filePath: string): void {
     }
   }
 
-  for (const [file, diags] of byFile) {
-    connection.sendDiagnostics({ uri: uriOf(file), diagnostics: diags });
-  }
+  publish(byFile);
 }
 
 // ---------------------------------------------------------------------------
