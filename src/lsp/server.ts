@@ -1,16 +1,27 @@
+import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
+import { buildModuleGraph } from "../module/resolver.ts";
+import { checkAll } from "../module/loader.ts";
+import type { SourceSpan } from "../surface/id.ts";
+
+// vscode-languageserver is CJS; named ESM imports fail in Node ESM (no export
+// named 'DiagnosticSeverity'). Use createRequire so both paths work:
+//   - tsx dev: import.meta.url is a valid file URL
+//   - esbuild CJS bundle: --define:import.meta.url replaces it with a fixed string
+const _require = createRequire(import.meta.url);
+type VLS        = typeof import("vscode-languageserver/node");
+type VLST       = typeof import("vscode-languageserver-textdocument");
+type Diagnostic = import("vscode-languageserver/node").Diagnostic;
+
+const {
   createConnection,
   TextDocuments,
   ProposedFeatures,
   TextDocumentSyncKind,
   DiagnosticSeverity,
-  type Diagnostic,
-} from "vscode-languageserver/node";
-import { TextDocument } from "vscode-languageserver-textdocument";
-import { buildModuleGraph } from "../module/resolver.ts";
-import { checkAll } from "../module/loader.ts";
-import type { SourceSpan } from "../surface/id.ts";
+} = _require("vscode-languageserver/node") as VLS;
+
+const { TextDocument } = _require("vscode-languageserver-textdocument") as VLST;
 
 // ---------------------------------------------------------------------------
 // Connection setup
