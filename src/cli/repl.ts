@@ -10,11 +10,10 @@ import { renderLoadError, renderResolverError } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
 import {
   buildEffects, resolveBuiltin, validateBinding,
-  EffectBindError, BUILTIN_NAMES,
+  bindBothAliases, BUILTIN_NAMES,
 } from "./effects.ts";
 import type { ElaboratedModule } from "../ir/ir.ts";
-import type { TypedModule, MorphTy, OmegaEntry, Omega } from "../typechecker/typed-ast.ts";
-import type { Value } from "../interpreter/value.ts";
+import type { TypedModule, MorphTy } from "../typechecker/typed-ast.ts";
 import type { EffectHandlers } from "../interpreter/eval.ts";
 
 // ---------------------------------------------------------------------------
@@ -543,66 +542,6 @@ function renderReplTypeError(err: LoadError, prefixLineCount: number): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Resolve and validate a builtin binding. Returns the handler, or null on error. */
-function applyEffectBinding(
-  op: string,
-  builtinName: string,
-  entry: OmegaEntry,
-  ctx: string,
-): ((v: Value) => Value) | null {
-  let spec;
-  try {
-    spec = resolveBuiltin(builtinName);
-  } catch (e) {
-    if (e instanceof EffectBindError) { console.error(`${ctx}: ${e.message}`); return null; }
-    throw e;
-  }
-  const err = validateBinding(spec, entry);
-  if (err) { console.error(`${ctx}: ${op}=${builtinName}: ${err}`); return null; }
-  return spec.handler;
-}
-
-/**
- * Validate and bind an effect handler under the given op key and all its omega
- * aliases (bare ↔ qualified). Every alias is validated independently before any
- * binding is installed, so a signature mismatch on any alias aborts the whole
- * operation. Returns false (with error already printed) on any failure.
- *
- * EffectNode.op is the surface spelling from `perform`. Omega stores each op
- * under both its qualified name and its bare name, so both spellings resolve at
- * runtime regardless of which form the user provided.
- */
-function bindBothAliases(
-  effects: EffectHandlers,
-  op: string,
-  builtinName: string,
-  omega: Omega,
-  ctx: string,
-): boolean {
-  const keys: string[] = [op];
-  if (op.includes(".")) {
-    const bareName = op.split(".").pop()!;
-    if (omega.has(bareName)) keys.push(bareName);
-  } else {
-    for (const key of omega.keys()) {
-      if (key.endsWith(`.${op}`)) keys.push(key);
-    }
-  }
-
-  const pairs: Array<[string, (v: Value) => Value]> = [];
-  for (const key of keys) {
-    const entry = omega.get(key);
-    if (!entry) continue;
-    const handler = applyEffectBinding(key, builtinName, entry, ctx);
-    if (!handler) return false;
-    pairs.push([key, handler]);
-  }
-
-  for (const [key, handler] of pairs) {
-    effects.set(key, handler);
-  }
-  return true;
-}
 
 function formatMorphTy(m: MorphTy): string {
   const eff = m.eff !== "pure" ? ` ! ${m.eff}` : "";

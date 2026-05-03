@@ -12,7 +12,7 @@ import {
   type JsonOutput,
 } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
-import { buildEffects, resolveBuiltin, validateBinding, EffectBindError, type BuiltinSpec } from "./effects.ts";
+import { buildEffects, resolveBuiltin, validateBinding, bindBothAliases } from "./effects.ts";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -167,19 +167,13 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
   }
 
   // Resolve and validate explicit --effect bindings.
+  // bindBothAliases expands to all omega aliases of the same declaration (by
+  // qualifiedName), validates all before installing any, and prints errors itself.
   for (const [op, builtinName] of effectBindings) {
-    const entry = elabMod.omega.get(op);
-    if (!entry) die(`weave run: --effect ${op}=${builtinName}: '${op}' is not a declared effect op in this program`);
-    let spec: BuiltinSpec;
-    try {
-      spec = resolveBuiltin(builtinName);
-    } catch (e) {
-      if (e instanceof EffectBindError) die(`weave run: --effect ${op}=${builtinName}: ${e.message}`);
-      throw e;
+    if (!elabMod.omega.has(op)) {
+      die(`weave run: --effect ${op}=${builtinName}: '${op}' is not a declared effect op in this program`);
     }
-    const err = validateBinding(spec, entry);
-    if (err) die(`weave run: --effect ${op}=${builtinName}: ${err}`);
-    effects.set(op, spec.handler);
+    if (!bindBothAliases(effects, op, builtinName, elabMod.omega, "weave run")) process.exit(1);
   }
 
   // --- Resolve input value ---
