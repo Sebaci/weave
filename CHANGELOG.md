@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-05-03
+
+### Added
+- `weave run --effect <op>=<builtin>`: explicitly bind a declared Weave effect operation to a named host implementation. Weave files declare effect signatures; the CLI binds them to real I/O at run time. Example: `--effect App.load=readFile --effect App.save=writeFile`.
+- Built-in effect library: `print` (Text → Unit, sequential), `readFile` (Text → Text, sequential), `writeFile` ({path: Text, content: Text} → Unit, sequential), `getEnv` (Text → Text, parallel-safe).
+- `print` remains auto-bound (backward compatibility). `readFile`, `writeFile`, and `getEnv` require explicit `--effect` to prevent silent capability grants.
+- Binding validation: the CLI checks that the built-in's input type, output type, and effect level are compatible with the declared effect signature in the Weave file. Incompatible bindings are rejected with a clear error before interpretation starts.
+- Unknown op names in `--effect` (typos, undeclared ops) are caught and reported.
+
+---
+
 ## [0.8.0] - 2026-05-02
 
 ### Added

@@ -118,6 +118,7 @@ npm run cli -- check <file>                            # parse + typecheck (all 
 npm run cli -- check <file> --json                     # machine-readable JSON diagnostics
 npm run cli -- run   <file> --def <name>               # run a Unit-input def
 npm run cli -- run   <file> --def <name> --input '<json>'  # run any monomorphic def with structured input
+npm run cli -- run   <file> --def <name> [--effect <op>=<builtin>]...  # bind effect ops to host implementations
 ```
 
 Examples:
@@ -229,7 +230,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.8.0** — structured CLI input for any monomorphic def.
+Current stage: **v0.9.0** — effect runtime binding: declare effects in Weave, bind them to host I/O at the CLI.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -245,7 +246,8 @@ Current stage: **v0.8.0** — structured CLI input for any monomorphic def.
 * ✅ Structured diagnostics — error codes, source spans, source snippets with caret, `--json` output
 * ✅ VS Code extension — syntax highlighting + LSP server with diagnostics-on-save
 * ✅ `--input '<json>'` — type-directed JSON input for any monomorphic def
-* 🚧 Effect runtime binding, REPL — not yet started
+* ✅ `--effect <op>=<builtin>` — bind declared effect ops to host I/O (`readFile`, `writeFile`, `getEnv`, `print`)
+* 🚧 REPL — not yet started
 
 ---
 
