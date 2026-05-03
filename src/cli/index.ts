@@ -11,7 +11,7 @@ import {
   type JsonOutput,
 } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
-import { buildEffects, resolveBuiltin, EffectBindError } from "./effects.ts";
+import { buildEffects, resolveBuiltin, validateBinding, EffectBindError, type BuiltinSpec } from "./effects.ts";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -148,13 +148,31 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
   }
 
   const effects = buildEffects(modulePrefix);
+
+  // Validate auto-bound print against any declared print ops in this program.
+  const printSpec = resolveBuiltin("print");
+  for (const key of (["print", modulePrefix ? `${modulePrefix}.print` : ""] as string[]).filter(Boolean)) {
+    const entry = elabMod.omega.get(key);
+    if (entry) {
+      const err = validateBinding(printSpec, entry);
+      if (err) die(`weave run: auto-bound 'print' is incompatible with declared op '${key}': ${err}`);
+    }
+  }
+
+  // Resolve and validate explicit --effect bindings.
   for (const [op, builtinName] of effectBindings) {
+    const entry = elabMod.omega.get(op);
+    if (!entry) die(`weave run: --effect ${op}=${builtinName}: '${op}' is not a declared effect op in this program`);
+    let spec: BuiltinSpec;
     try {
-      effects.set(op, resolveBuiltin(builtinName));
+      spec = resolveBuiltin(builtinName);
     } catch (e) {
       if (e instanceof EffectBindError) die(`weave run: --effect ${op}=${builtinName}: ${e.message}`);
       throw e;
     }
+    const err = validateBinding(spec, entry);
+    if (err) die(`weave run: --effect ${op}=${builtinName}: ${err}`);
+    effects.set(op, spec.handler);
   }
 
   // --- Resolve input value ---
