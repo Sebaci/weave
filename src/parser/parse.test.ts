@@ -235,3 +235,9 @@ test("qualified name: bare UPPER still parses as Ctor", () => {
   if (step?.tag !== "Ctor") return;
   expect(step.name).toBe("A");
 });
+
+test("$repl sentinel: rejected as a def name", () => {
+  // $repl is the internal REPL sentinel; $ is not a valid identifier start.
+  const r = parseModule(`def \$repl = 1`);
+  expect(r.ok).toBe(false);
+});

@@ -316,11 +316,14 @@ export type DefDecl = {
    *   def f : A -> B ! ε = ...   →  ty = Arrow(A, B, ε),  eff = null
    *   def f : B ! ε = ...        →  ty = <output type B>, eff = ε
    *   def f : A -> B = ...       →  ty = Arrow(A, B, null), eff = null
+   *   def f = ...                →  ty = null  (unannotated; input=Unit, output inferred)
    *
    * Unit-sourced defs have no Arrow at the surface — the elaborator inserts
    * `1 ->`. When `ty` is not an Arrow, `eff` carries the effect annotation.
+   * When `ty` is null the typechecker infers both output type and effect from
+   * the body; the resulting def is always monomorphic and unit-sourced.
    */
-  ty:     SurfaceType;
+  ty:     SurfaceType | null;
 
   /**
    * Outer effect annotation from `def name : outputTy ! eff = ...`.
@@ -480,7 +483,7 @@ export function mkCtorDecl(name: string, payload: SurfaceField[] | null): CtorDe
 export function mkDefDecl(
   name: string,
   params: DefParam[],
-  ty: SurfaceType,
+  ty: SurfaceType | null,
   eff: SurfaceEffect | null,
   body: Expr,
 ): DefDecl {

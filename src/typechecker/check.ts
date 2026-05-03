@@ -298,26 +298,27 @@ function buildDefSignature(decl: DefDecl, typeDecls: TypeDeclEnv): TypeResult<De
   const paramsR = collectResults(paramResults);
   if (!paramsR.ok) return paramsR;
 
-  // Resolve the signature type
-  const tyR = resolveSurfaceType(decl.ty, tyVarNames, typeDecls);
-  if (!tyR.ok) return tyR;
-
   let morphTy: MorphTy;
-  if (decl.ty.tag === "Arrow") {
+  if (decl.ty === null) {
+    // Unannotated def: placeholder morphTy for the pre-scan. checkDef replaces
+    // this with the actual inferred morphTy once the body is checked.
+    morphTy = { input: { tag: "Unit" }, output: { tag: "Unit" }, eff: "pure" };
+  } else if (decl.ty.tag === "Arrow") {
     // Arrow type: input and output are explicit
+    const tyR = resolveSurfaceType(decl.ty, tyVarNames, typeDecls);
+    if (!tyR.ok) return tyR;
     const arrowTy = tyR.value;
     if (arrowTy.tag !== "Arrow") return typeError("Internal: expected Arrow", decl.meta.id, "E_INTERNAL");
-    const eff = arrowTy.eff;
-    const concreteEff = resolveEffLevelFinal(eff, decl.meta.id);
+    const concreteEff = resolveEffLevelFinal(arrowTy.eff, decl.meta.id);
     if (!concreteEff.ok) return concreteEff;
     morphTy = { input: arrowTy.from, output: arrowTy.to, eff: concreteEff.value };
   } else {
     // Unit-sourced def: ty is the output type; effect from outer annotation
-    const outputTy = tyR.value;
-    const eff = decl.eff ?? "pure";
-    const concreteEff = resolveConcreteEffect(eff, decl.meta.id);
+    const tyR = resolveSurfaceType(decl.ty, tyVarNames, typeDecls);
+    if (!tyR.ok) return tyR;
+    const concreteEff = resolveConcreteEffect(decl.eff ?? "pure", decl.meta.id);
     if (!concreteEff.ok) return concreteEff;
-    morphTy = { input: { tag: "Unit" }, output: outputTy, eff: concreteEff.value };
+    morphTy = { input: { tag: "Unit" }, output: tyR.value, eff: concreteEff.value };
   }
 
   return ok({
@@ -361,7 +362,7 @@ function collectTyVarNames(decl: DefDecl): string[] {
     }
   };
   decl.params.forEach((p) => visitST(p.ty));
-  visitST(decl.ty);
+  if (decl.ty !== null) visitST(decl.ty);
   return [...names];
 }
 
@@ -472,6 +473,18 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
   if (!bodyR.ok) return bodyR;
 
   const typedBody = bodyR.value;
+
+  // Unannotated def: morphTy is fully inferred from the body; no declared type to check.
+  if (decl.ty === null) {
+    return ok({
+      name:        decl.name,
+      params:      params.map((p) => ({ name: p.name, morphTy: p.morphTy })),
+      morphTy:     { input: morphTy.input, output: typedBody.morphTy.output, eff: typedBody.morphTy.eff },
+      body:        typedBody,
+      surfaceBody: decl.body,
+      sourceId:    decl.meta.id,
+    });
+  }
 
   // Check body output type matches declared output type
   const unifyR = unify(typedBody.morphTy.output, morphTy.output);

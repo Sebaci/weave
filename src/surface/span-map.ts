@@ -52,7 +52,7 @@ export function buildSpanMap(mod: Module): SpanMap {
   function visitDefDecl(d: DefDecl): void {
     reg(d.meta.id, d.meta.span);
     d.params.forEach(visitDefParam);
-    visitSurfaceType(d.ty);
+    if (d.ty !== null) visitSurfaceType(d.ty);
     visitExpr(d.body);
   }
 

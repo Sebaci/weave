@@ -43,8 +43,12 @@ export function resolvePath(importPath: string[], root: string): string {
  * Build a ModuleGraph rooted at entryFile.
  * Uses DFS with gray/black sets for cycle detection.
  * Each file is parsed at most once.
+ *
+ * @param entrySource - If provided, use this string as the entry file's source
+ *   instead of reading from disk. Imports within entrySource are still resolved
+ *   from disk. Used by the REPL to inject augmented source without touching the file.
  */
-export function buildModuleGraph(entryFile: string): ResolveResult {
+export function buildModuleGraph(entryFile: string, entrySource?: string): ResolveResult {
   const absEntry = resolve(entryFile);
   const root     = dirname(absEntry);
 
@@ -67,10 +71,12 @@ export function buildModuleGraph(entryFile: string): ResolveResult {
       return;
     }
 
-    // Read and parse
+    // Read and parse — use the in-memory override for the entry file if provided
     let source: string;
     try {
-      source = readFileSync(filePath, "utf-8");
+      source = (filePath === absEntry && entrySource !== undefined)
+        ? entrySource
+        : readFileSync(filePath, "utf-8");
       sources.set(filePath, source);
     } catch {
       errors.push({

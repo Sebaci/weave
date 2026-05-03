@@ -280,20 +280,24 @@ class Parser {
       params.push({ name: pName, ty: pTy, meta: this.mkSpan(pStart) });
     }
 
-    this.expect("COLON", "Expected ':' in def signature");
-    const ty = this.parseTypeExpr();
-
-    // Optional outer `! effectLevel`
+    // `: typeExpr` is optional. Omitting it produces an unannotated def
+    // (ty = null) whose morphTy is inferred by the typechecker from the body.
+    let ty: SurfaceType | null = null;
     let eff: SurfaceEffect | null = null;
-    if (this.cur().kind === "BANG") {
+    if (this.cur().kind === "COLON") {
       this.advance();
-      const e = this.parseEffectLevel();
-      // If ty is Arrow, embed the effect inside the arrow; otherwise set outer eff
-      if (ty.tag === "Arrow") {
-        // Replace arrow with effect-annotated version
-        (ty as { eff: SurfaceEffect | null }).eff = e;
-      } else {
-        eff = e;
+      ty = this.parseTypeExpr();
+
+      // Optional outer `! effectLevel`
+      if (this.cur().kind === "BANG") {
+        this.advance();
+        const e = this.parseEffectLevel();
+        // If ty is Arrow, embed the effect inside the arrow; otherwise set outer eff
+        if (ty.tag === "Arrow") {
+          (ty as { eff: SurfaceEffect | null }).eff = e;
+        } else {
+          eff = e;
+        }
       }
     }
 

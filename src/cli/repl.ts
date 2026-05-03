@@ -4,8 +4,8 @@ import { showType } from "../typechecker/index.ts";
 import { elaborateAll } from "../elaborator/index.ts";
 import { interpret, MissingEffectHandlerError } from "../interpreter/eval.ts";
 import { showValue, VUnit } from "../interpreter/value.ts";
-import { buildModuleGraph, type ModuleGraph } from "../module/resolver.ts";
-import { checkAll } from "../module/loader.ts";
+import { buildModuleGraph, type ModuleGraph, type ResolverError } from "../module/resolver.ts";
+import { checkAll, type LoadError } from "../module/loader.ts";
 import { renderLoadError, renderResolverError } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
 import {
@@ -13,7 +13,16 @@ import {
   EffectBindError, BUILTIN_NAMES,
 } from "./effects.ts";
 import type { ElaboratedModule } from "../ir/ir.ts";
-import type { TypedModule, MorphTy } from "../typechecker/typed-ast.ts";
+import type { TypedModule, MorphTy, OmegaEntry, Omega } from "../typechecker/typed-ast.ts";
+import type { Value } from "../interpreter/value.ts";
+import type { EffectHandlers } from "../interpreter/eval.ts";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const REPL_DEF_NAME = "$repl";
+const REPL_SENTINEL = "<repl>";
 
 // ---------------------------------------------------------------------------
 // Session state
@@ -21,9 +30,10 @@ import type { TypedModule, MorphTy } from "../typechecker/typed-ast.ts";
 
 type Session = {
   filePath:       string;                   // absolute path of entry file
+  entrySource:    string;                   // raw source text of the entry file
   graph:          ModuleGraph;
   sources:        ReadonlyMap<string, string>;
-  typedMod:       TypedModule;              // entry module's typed module
+  typedMod:       TypedModule;
   elabMod:        ElaboratedModule;
   modulePrefix:   string;                   // e.g. "Examples.Hello"
   sessionEffects: Map<string, string>;      // op → builtin name (persistent)
@@ -36,6 +46,8 @@ type Session = {
 export function runRepl(): void {
   let session: Session | null = null;
   let lastFilePath: string | null = null;
+  let pasteMode = false;
+  const pasteBuffer: string[] = [];
 
   const rl = readline.createInterface({
     input:  process.stdin,
@@ -49,10 +61,35 @@ export function runRepl(): void {
 
   rl.on("line", (rawLine) => {
     const line = rawLine.trim();
+
+    // Paste mode: collect lines until :end
+    if (pasteMode) {
+      if (line === ":end") {
+        pasteMode = false;
+        rl.setPrompt("weave> ");
+        const exprText = pasteBuffer.join("\n");
+        pasteBuffer.length = 0;
+        if (!session) {
+          console.error("No file loaded. Use :load <file> first.");
+        } else if (exprText.trim()) {
+          evalExpr(exprText, session);
+        }
+      } else {
+        pasteBuffer.push(rawLine); // preserve original indentation
+      }
+      rl.prompt();
+      return;
+    }
+
     if (!line) { rl.prompt(); return; }
 
+    // Non-command line: evaluate as expression
     if (!line.startsWith(":")) {
-      console.log("Weave programs are loaded from files. Use :load <file> or :help.");
+      if (!session) {
+        console.error("No file loaded. Use :load <file> first.");
+      } else {
+        evalExpr(line, session);
+      }
       rl.prompt();
       return;
     }
@@ -64,16 +101,20 @@ export function runRepl(): void {
     switch (cmd) {
       case "load": {
         if (args.length !== 1) { console.error(":load requires a file path"); break; }
-        // Update lastFilePath before attempting the load so that :reload retries
-        // the same file even if this load fails (e.g. after fixing a type error).
-        // The active session is preserved unchanged on failure.
-        lastFilePath = resolve(args[0]!);
-        session = cmdLoad(lastFilePath, session);
+        const attempted = resolve(args[0]!);
+        const newSession = cmdLoad(attempted, session);
+        // Only update lastFilePath on successful load so :reload retries the
+        // last successfully loaded file, not the last attempted one.
+        if (newSession !== session) {
+          lastFilePath = attempted;
+          session = newSession;
+        }
         break;
       }
       case "reload": {
         if (!lastFilePath) { console.error("No file loaded. Use :load <file> first."); break; }
-        session = cmdLoad(lastFilePath, session);
+        const newSession = cmdLoad(lastFilePath, session);
+        if (newSession !== session) session = newSession;
         break;
       }
       case "run": {
@@ -109,6 +150,16 @@ export function runRepl(): void {
         cmdEffect(args[0]!, session);
         break;
       }
+      case "paste": {
+        pasteMode = true;
+        pasteBuffer.length = 0;
+        rl.setPrompt("... ");
+        console.log("Entering paste mode. Type :end on a new line to evaluate.");
+        break;
+      }
+      case "end":
+        console.error(":end is only valid inside :paste mode");
+        break;
       case "help":
         printHelp();
         break;
@@ -163,20 +214,123 @@ function cmdLoad(absPath: string, current: Session | null): Session | null {
     return current;
   }
 
-  const mod = graphResult.graph.get(absPath)!.mod;
-  const modulePrefix = mod.path.join(".");
+  const entryNode = graphResult.graph.get(absPath)!;
+  const modulePrefix = entryNode.mod.path.join(".");
 
-  // Preserve session effects when reloading the same file; reset for a new file.
   const sessionEffects = (current?.filePath === absPath)
     ? new Map(current.sessionEffects)
     : new Map<string, string>();
 
   console.log(`Loaded ${absPath}`);
   return {
-    filePath: absPath, graph: graphResult.graph,
-    sources, typedMod, elabMod: elabResult.value,
-    modulePrefix, sessionEffects,
+    filePath: absPath,
+    entrySource: entryNode.source,
+    graph: graphResult.graph,
+    sources,
+    typedMod,
+    elabMod: elabResult.value,
+    modulePrefix,
+    sessionEffects,
   };
+}
+
+function evalExpr(exprText: string, session: Session): void {
+  // Wrap the expression as an unannotated def at the end of the entry source.
+  // The typechecker infers the output type; input is assumed Unit.
+  const prefix = `${session.entrySource}\n\ndef ${REPL_DEF_NAME} =\n`;
+  const augmented = `${prefix}${exprText}\n`;
+  const prefixLineCount = (prefix.match(/\n/g) ?? []).length;
+
+  const graphResult = buildModuleGraph(session.filePath, augmented);
+  if (!graphResult.ok) {
+    for (const err of graphResult.errors) {
+      if (err.tag === "parse-error" && err.filePath === session.filePath) {
+        console.error(renderReplParseError(err, prefixLineCount));
+      } else {
+        console.error(renderResolverError(err, graphResult.sources));
+      }
+    }
+    return;
+  }
+
+  const sources = graphSources(graphResult.graph);
+  const loadResult = checkAll(graphResult.graph, session.filePath);
+  if (!loadResult.ok) {
+    for (const err of loadResult.errors) {
+      if (err.filePath === session.filePath && err.span && err.span.start.line > prefixLineCount) {
+        console.error(renderReplTypeError(err, prefixLineCount));
+      } else {
+        console.error(renderLoadError(err, sources.get(err.filePath)));
+      }
+    }
+    return;
+  }
+
+  const typedMod = loadResult.modules.get(session.filePath);
+  if (!typedMod) { console.error("internal: entry module missing"); return; }
+
+  const replDef = typedMod.typedDefs.get(REPL_DEF_NAME);
+  if (!replDef) { console.error("internal: $repl def missing after typecheck"); return; }
+
+  // REPL eval always supplies Unit input; non-Unit expressions must use :run.
+  if (replDef.morphTy.input.tag !== "Unit") {
+    console.error(
+      `expression has type ${formatMorphTy(replDef.morphTy)}; ` +
+      `REPL eval supplies Unit input — use :run for non-Unit defs`,
+    );
+    return;
+  }
+
+  const elabResult = elaborateAll(loadResult.modules);
+  if (!elabResult.ok) {
+    for (const err of elabResult.errors) {
+      console.error(`elaborate: ${err.message}`);
+    }
+    return;
+  }
+
+  const elabMod = elabResult.value;
+  const qualName = session.modulePrefix
+    ? `${session.modulePrefix}.${REPL_DEF_NAME}`
+    : REPL_DEF_NAME;
+
+  if (!elabMod.defs.has(qualName)) {
+    console.error("expression is polymorphic; supply type arguments to evaluate");
+    return;
+  }
+
+  // Apply session effects, then validate auto-bound print.
+  const effects = buildEffects(session.modulePrefix);
+  for (const [op, builtinName] of session.sessionEffects) {
+    const entry = elabMod.omega.get(op);
+    if (!entry) continue;
+    const handler = applyEffectBinding(op, builtinName, entry, REPL_SENTINEL);
+    if (!handler) return;
+    bindBothAliases(effects, op, handler, elabMod.omega);
+  }
+
+  const printSpec = resolveBuiltin("print");
+  for (const key of ["print", session.modulePrefix ? `${session.modulePrefix}.print` : ""].filter(Boolean)) {
+    const entry = elabMod.omega.get(key);
+    if (entry) {
+      const err = validateBinding(printSpec, entry);
+      if (err) {
+        console.error(`auto-bound 'print' is incompatible with declared op '${key}': ${err}`);
+        return;
+      }
+    }
+  }
+
+  try {
+    const result = interpret(elabMod, qualName, VUnit, effects);
+    if (result.tag !== "unit") console.log(showValue(result));
+  } catch (e) {
+    if (e instanceof MissingEffectHandlerError) {
+      console.error(`no binding for effect '${e.op}'; use :effect ${e.op}=<builtin>`);
+      return;
+    }
+    throw e;
+  }
 }
 
 function cmdRun(args: string[], session: Session): void {
@@ -369,6 +523,24 @@ function cmdEffect(spec: string, session: Session): void {
 }
 
 // ---------------------------------------------------------------------------
+// REPL expression error rendering
+// ---------------------------------------------------------------------------
+
+function renderReplParseError(
+  err: ResolverError & { tag: "parse-error" },
+  prefixLineCount: number,
+): string {
+  const { line, column } = err.span.start;
+  return `${REPL_SENTINEL}:${line - prefixLineCount}:${column}: error: ${err.message}`;
+}
+
+function renderReplTypeError(err: LoadError, prefixLineCount: number): string {
+  if (!err.span) return `${REPL_SENTINEL}: error: ${err.message}`;
+  const { line, column } = err.span.start;
+  return `${REPL_SENTINEL}:${line - prefixLineCount}:${column}: error: ${err.message}`;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -376,9 +548,9 @@ function cmdEffect(spec: string, session: Session): void {
 function applyEffectBinding(
   op: string,
   builtinName: string,
-  entry: import("../typechecker/typed-ast.ts").OmegaEntry,
+  entry: OmegaEntry,
   ctx: string,
-): ((v: import("../interpreter/value.ts").Value) => import("../interpreter/value.ts").Value) | null {
+): ((v: Value) => Value) | null {
   let spec;
   try {
     spec = resolveBuiltin(builtinName);
@@ -401,10 +573,10 @@ function applyEffectBinding(
  * provided to :effect.
  */
 function bindBothAliases(
-  effects: import("../interpreter/eval.ts").EffectHandlers,
+  effects: EffectHandlers,
   op: string,
-  handler: (v: import("../interpreter/value.ts").Value) => import("../interpreter/value.ts").Value,
-  omega: import("../typechecker/typed-ast.ts").Omega,
+  handler: (v: Value) => Value,
+  omega: Omega,
 ): void {
   effects.set(op, handler);
   if (op.includes(".")) {
@@ -456,6 +628,9 @@ function printHelp(): void {
   console.log(
     [
       "Weave REPL — available commands:",
+      "  <expr>                             Evaluate an expression (Unit input)",
+      "  :paste                             Enter multi-line paste mode",
+      "  :end                               End paste mode and evaluate",
       "  :load <file>                       Load and compile a .weave file",
       "  :reload                            Reload the current file",
       "  :run <name>                        Run a def (Unit input)",
