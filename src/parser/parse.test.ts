@@ -236,8 +236,8 @@ test("qualified name: bare UPPER still parses as Ctor", () => {
   expect(step.name).toBe("A");
 });
 
-test("$repl sentinel: rejected as a def name", () => {
-  // $repl is the internal REPL sentinel; $ is not a valid identifier start.
-  const r = parseModule(`def \$repl = 1`);
+test("$ is not a valid identifier start", () => {
+  // $ is rejected by the lexer; no identifier can begin with it.
+  const r = parseModule(`def \$foo = 1`);
   expect(r.ok).toBe(false);
 });

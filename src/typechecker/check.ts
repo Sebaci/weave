@@ -177,10 +177,14 @@ function buildEnv(mod: Module, seeds?: ModuleExports): TypeResult<EnvBuildResult
   }
 
   // --- Collect def signatures ---
+  // Unannotated defs (ty === null) are intentionally excluded from the pre-scan
+  // env. They cannot be referenced by other defs, preventing unsound recursion
+  // through the Unit→Unit placeholder. They are still checked in pass 2.
   const defPrefix = mod.path.join(".");
   for (const topDecl of mod.decls) {
     if (topDecl.tag !== "DefDecl") continue;
     const decl = topDecl.decl;
+    if (decl.ty === null) continue;
     const r = buildDefSignature(decl, typeDecls);
     if (!r.ok) { errors.push(...r.errors); continue; }
     const qualName = defPrefix ? `${defPrefix}.${decl.name}` : decl.name;

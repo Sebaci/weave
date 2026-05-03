@@ -21,7 +21,9 @@ import type { EffectHandlers } from "../interpreter/eval.ts";
 // Constants
 // ---------------------------------------------------------------------------
 
-const REPL_DEF_NAME = "$repl";
+// _repl_ is a valid Weave identifier reserved for the inline eval wrapper.
+// evalExpr checks for collisions before augmenting.
+const REPL_DEF_NAME = "_repl_";
 const REPL_SENTINEL = "<repl>";
 
 // ---------------------------------------------------------------------------
@@ -235,6 +237,12 @@ function cmdLoad(absPath: string, current: Session | null): Session | null {
 }
 
 function evalExpr(exprText: string, session: Session): void {
+  // Guard: if the user's module already defines _repl_, we can't safely inject it.
+  if (session.typedMod.typedDefs.has(REPL_DEF_NAME)) {
+    console.error(`'${REPL_DEF_NAME}' is defined in the loaded module; cannot evaluate expression`);
+    return;
+  }
+
   // Wrap the expression as an unannotated def at the end of the entry source.
   // The typechecker infers the output type; input is assumed Unit.
   const prefix = `${session.entrySource}\n\ndef ${REPL_DEF_NAME} =\n`;
