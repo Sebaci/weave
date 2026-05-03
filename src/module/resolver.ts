@@ -103,6 +103,25 @@ export function buildModuleGraph(entryFile: string, entrySource?: string): Resol
     }
 
     const mod = parseResult.value;
+
+    // Unannotated defs (`def foo = ...`) are a REPL-internal construct.
+    // The v1 surface syntax requires a type annotation on every def.
+    // Allow them only for the REPL-injected in-memory entry source; reject in
+    // all real files (including imports resolved from disk).
+    const isReplAugmentedEntry = filePath === absEntry && entrySource !== undefined;
+    if (!isReplAugmentedEntry) {
+      for (const topDecl of mod.decls) {
+        if (topDecl.tag === "DefDecl" && topDecl.decl.ty === null) {
+          errors.push({
+            tag:     "parse-error",
+            filePath,
+            message: `def '${topDecl.decl.name}' requires a type annotation`,
+            span:    topDecl.decl.meta.span,
+          });
+        }
+      }
+      if (errors.length > 0) { black.add(filePath); return; }
+    }
     gray.add(filePath);
 
     // Resolve direct imports

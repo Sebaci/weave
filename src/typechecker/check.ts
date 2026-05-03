@@ -460,8 +460,17 @@ function resolveEffLevelFinal(eff: EffectLevel, sourceId: SourceNodeId): TypeRes
 // ---------------------------------------------------------------------------
 
 export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
-  const defInfo = env.globals.defs.get(decl.name);
-  if (!defInfo) return typeError(`Internal: def '${decl.name}' not in environment`, decl.meta.id, "E_INTERNAL");
+  let defInfo = env.globals.defs.get(decl.name);
+  if (decl.ty === null) {
+    // Unannotated def: always build a fresh local signature rather than using
+    // any env entry (which may be absent, or may be a seeded import that shares
+    // the name and would corrupt the type check).
+    const sigR = buildDefSignature(decl, env.typeDecls);
+    if (!sigR.ok) return sigR;
+    defInfo = sigR.value;
+  } else if (!defInfo) {
+    return typeError(`Internal: def '${decl.name}' not in environment`, decl.meta.id, "E_INTERNAL");
+  }
 
   // For polymorphic defs, freshen type variables before checking
   // (prevents clashes between def-level vars and call-site vars)
