@@ -92,13 +92,28 @@ export function validateBinding(spec: BuiltinSpec, entry: OmegaEntry): string | 
   return null;
 }
 
-// Build initial effects map: print is auto-bound under bare and qualified names.
-export function buildEffects(modulePrefix: string): EffectHandlers {
-  const print = BUILTINS.get("print")!.handler;
-  const m: EffectHandlers = new Map();
-  m.set("print", print);
-  if (modulePrefix) m.set(`${modulePrefix}.print`, print);
-  return m;
+/**
+ * Build the initial effects map by auto-binding the print builtin under every
+ * omega entry whose canonical qualified name has bare name "print". Validates
+ * each matching entry for type/effect compatibility and returns null (with error
+ * printed) on mismatch. Must be called after elaboration so omega is populated.
+ */
+export function buildEffects(omega: Omega, ctx: string): EffectHandlers | null {
+  const printSpec = BUILTINS.get("print")!;
+  const effects: EffectHandlers = new Map();
+  const seen = new Set<string>();
+  for (const entry of omega.values()) {
+    if (seen.has(entry.qualifiedName)) continue;
+    seen.add(entry.qualifiedName);
+    if (entry.qualifiedName.split(".").pop() !== "print") continue;
+    const err = validateBinding(printSpec, entry);
+    if (err) {
+      console.error(`${ctx}: auto-bound 'print' is incompatible with declared op '${entry.qualifiedName}': ${err}`);
+      return null;
+    }
+    effects.set(entry.qualifiedName, printSpec.handler);
+  }
+  return effects;
 }
 
 /** Resolve and validate a builtin binding. Returns the handler, or null on error. */
@@ -121,13 +136,12 @@ export function applyEffectBinding(
 }
 
 /**
- * Validate and bind an effect handler under the given op key and all its omega
- * aliases (bare ↔ qualified). Aliases are found by matching sourceId — the
- * parse-time AST node id shared by both the bare and qualified omega keys for
- * the same declaration. qualifiedName differs across those two keys, making it
- * an unreliable grouping key.
+ * Validate and bind an effect handler for the declaration identified by `op`
+ * (bare or qualified). Installs the handler under OmegaEntry.qualifiedName —
+ * the canonical key that checkPerform writes into Perform.op and the elaborator
+ * copies into EffectNode.op. The runtime always looks up by that key, so
+ * alias expansion at bind-time is not needed.
  *
- * Every alias is validated before any binding is installed (all-or-nothing).
  * Returns false (with error already printed) on any failure.
  */
 export function bindBothAliases(
@@ -137,25 +151,10 @@ export function bindBothAliases(
   omega: Omega,
   ctx: string,
 ): boolean {
-  const primaryEntry = omega.get(op);
-  if (!primaryEntry) return false; // caller should verify presence first
-
-  const declId = primaryEntry.sourceId;
-  const keys: string[] = [];
-  for (const [key, entry] of omega) {
-    if (entry.sourceId === declId) keys.push(key);
-  }
-
-  const pairs: Array<[string, (v: Value) => Value]> = [];
-  for (const key of keys) {
-    const entry = omega.get(key)!;
-    const handler = applyEffectBinding(key, builtinName, entry, ctx);
-    if (!handler) return false;
-    pairs.push([key, handler]);
-  }
-
-  for (const [key, handler] of pairs) {
-    effects.set(key, handler);
-  }
+  const entry = omega.get(op);
+  if (!entry) return false; // caller should verify presence first
+  const handler = applyEffectBinding(entry.qualifiedName, builtinName, entry, ctx);
+  if (!handler) return false;
+  effects.set(entry.qualifiedName, handler);
   return true;
 }

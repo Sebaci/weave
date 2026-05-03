@@ -9,8 +9,7 @@ import { checkAll, type LoadError } from "../module/loader.ts";
 import { renderLoadError, renderResolverError } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
 import {
-  buildEffects, resolveBuiltin, validateBinding,
-  bindBothAliases, BUILTIN_NAMES,
+  buildEffects, bindBothAliases, BUILTIN_NAMES,
 } from "./effects.ts";
 import type { ElaboratedModule } from "../ir/ir.ts";
 import type { TypedModule, MorphTy } from "../typechecker/typed-ast.ts";
@@ -306,23 +305,12 @@ function evalExpr(exprText: string, session: Session): void {
     return;
   }
 
-  // Apply session effects, then validate auto-bound print.
-  const effects = buildEffects(session.modulePrefix);
+  // Auto-bind print, then apply session effects.
+  const effects = buildEffects(elabMod.omega, REPL_SENTINEL);
+  if (!effects) return;
   for (const [op, builtinName] of session.sessionEffects) {
     if (!elabMod.omega.has(op)) continue;
     if (!bindBothAliases(effects, op, builtinName, elabMod.omega, REPL_SENTINEL)) return;
-  }
-
-  const printSpec = resolveBuiltin("print");
-  for (const key of ["print", session.modulePrefix ? `${session.modulePrefix}.print` : ""].filter(Boolean)) {
-    const entry = elabMod.omega.get(key);
-    if (entry) {
-      const err = validateBinding(printSpec, entry);
-      if (err) {
-        console.error(`auto-bound 'print' is incompatible with declared op '${key}': ${err}`);
-        return;
-      }
-    }
   }
 
   try {
@@ -379,7 +367,8 @@ function cmdRun(args: string[], session: Session): void {
   }
 
   // Build effect handlers: auto-bind print, then session effects, then per-command overrides.
-  const effects = buildEffects(modulePrefix);
+  const effects = buildEffects(elabMod.omega, ":run");
+  if (!effects) return;
 
   for (const [op, builtinName] of session.sessionEffects) {
     if (!elabMod.omega.has(op)) {
@@ -395,19 +384,6 @@ function cmdRun(args: string[], session: Session): void {
       return;
     }
     if (!bindBothAliases(effects, op, builtinName, elabMod.omega, ":run")) return;
-  }
-
-  // Validate auto-bound print against any declared print ops.
-  const printSpec = resolveBuiltin("print");
-  for (const key of ["print", modulePrefix ? `${modulePrefix}.print` : ""].filter(Boolean)) {
-    const entry = elabMod.omega.get(key);
-    if (entry) {
-      const err = validateBinding(printSpec, entry);
-      if (err) {
-        console.error(`:run: auto-bound 'print' is incompatible with declared op '${key}': ${err}`);
-        return;
-      }
-    }
   }
 
   // Decode input.

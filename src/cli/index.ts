@@ -12,7 +12,7 @@ import {
   type JsonOutput,
 } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
-import { buildEffects, resolveBuiltin, validateBinding, bindBothAliases } from "./effects.ts";
+import { buildEffects, bindBothAliases } from "./effects.ts";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -154,21 +154,11 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
     die(`weave run: def '${defName}' is polymorphic and cannot be run directly`);
   }
 
-  const effects = buildEffects(modulePrefix);
-
-  // Validate auto-bound print against any declared print ops in this program.
-  const printSpec = resolveBuiltin("print");
-  for (const key of (["print", modulePrefix ? `${modulePrefix}.print` : ""] as string[]).filter(Boolean)) {
-    const entry = elabMod.omega.get(key);
-    if (entry) {
-      const err = validateBinding(printSpec, entry);
-      if (err) die(`weave run: auto-bound 'print' is incompatible with declared op '${key}': ${err}`);
-    }
-  }
+  // Auto-bind print across all omega entries whose canonical name has bare name "print".
+  const effects = buildEffects(elabMod.omega, "weave run");
+  if (!effects) process.exit(1);
 
   // Resolve and validate explicit --effect bindings.
-  // bindBothAliases expands to all omega aliases of the same declaration (by
-  // qualifiedName), validates all before installing any, and prints errors itself.
   for (const [op, builtinName] of effectBindings) {
     if (!elabMod.omega.has(op)) {
       die(`weave run: --effect ${op}=${builtinName}: '${op}' is not a declared effect op in this program`);

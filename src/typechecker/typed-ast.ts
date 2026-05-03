@@ -43,7 +43,7 @@ export type TypedModule = {
 /** Ω — effect operation environment populated from effect declarations. */
 export type Omega = Map<string, OmegaEntry>;
 export type OmegaEntry = {
-  qualifiedName: string;           // e.g. "Http.get"
+  qualifiedName: string;           // always the fully-qualified form, e.g. "Http.get" (invariant: same on both bare and qualified omega keys for the same declaration)
   inputTy:       Type;
   outputTy:      Type;
   eff:           ConcreteEffect;   // always parallel-safe or sequential

@@ -168,7 +168,7 @@ function buildEnv(mod: Module, seeds?: ModuleExports): TypeResult<EnvBuildResult
     });
     // Also register without module prefix for single-module programs
     omega.set(decl.name, {
-      qualifiedName: decl.name,
+      qualifiedName: qualName,
       inputTy: inputR.value,
       outputTy: outputR.value,
       eff: eff.value,
@@ -1443,7 +1443,7 @@ function checkPerform(
     );
   }
   return ok(makeStep(
-    { tag: "Perform", op: qualName },
+    { tag: "Perform", op: entry.qualifiedName },
     { input: inputTy, output: entry.outputTy, eff: entry.eff },
     sourceId,
   ));
