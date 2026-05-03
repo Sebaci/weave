@@ -241,6 +241,18 @@ function evalExpr(exprText: string, session: Session): void {
     return;
   }
 
+  // Early check: top-level declaration keywords are not valid in expression context.
+  // Use the full Weave identifier pattern (allows apostrophes) so that valid names
+  // like `def'` or `type'` are not mistakenly rejected.
+  const firstWord = /^\s*([a-z_][a-zA-Z0-9_']*)/.exec(exprText)?.[1] ?? "";
+  if (["def", "type", "effect", "module", "import"].includes(firstWord)) {
+    console.error(
+      `'${firstWord}' is a top-level declaration keyword; the REPL evaluates expressions only.\n` +
+      `Add the declaration to the .weave file and use :reload.`,
+    );
+    return;
+  }
+
   // Wrap the expression as an unannotated def at the end of the entry source.
   // The typechecker infers the output type; input is assumed Unit.
   const prefix = `${session.entrySource}\n\ndef ${REPL_DEF_NAME} =\n`;
