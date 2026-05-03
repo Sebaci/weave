@@ -122,9 +122,10 @@ export function applyEffectBinding(
 
 /**
  * Validate and bind an effect handler under the given op key and all its omega
- * aliases (bare ↔ qualified). Aliases are found by matching qualifiedName on the
- * primary entry — this correctly scopes expansion to the same declaration and
- * avoids false matches when two declarations share a bare name across modules.
+ * aliases (bare ↔ qualified). Aliases are found by matching sourceId — the
+ * parse-time AST node id shared by both the bare and qualified omega keys for
+ * the same declaration. qualifiedName differs across those two keys, making it
+ * an unreliable grouping key.
  *
  * Every alias is validated before any binding is installed (all-or-nothing).
  * Returns false (with error already printed) on any failure.
@@ -139,10 +140,10 @@ export function bindBothAliases(
   const primaryEntry = omega.get(op);
   if (!primaryEntry) return false; // caller should verify presence first
 
-  const qualName = primaryEntry.qualifiedName;
+  const declId = primaryEntry.sourceId;
   const keys: string[] = [];
   for (const [key, entry] of omega) {
-    if (entry.qualifiedName === qualName) keys.push(key);
+    if (entry.sourceId === declId) keys.push(key);
   }
 
   const pairs: Array<[string, (v: Value) => Value]> = [];
