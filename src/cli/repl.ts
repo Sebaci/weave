@@ -64,6 +64,9 @@ export function runRepl(): void {
     switch (cmd) {
       case "load": {
         if (args.length !== 1) { console.error(":load requires a file path"); break; }
+        // Update lastFilePath before attempting the load so that :reload retries
+        // the same file even if this load fails (e.g. after fixing a type error).
+        // The active session is preserved unchanged on failure.
         lastFilePath = resolve(args[0]!);
         session = cmdLoad(lastFilePath, session);
         break;
@@ -228,7 +231,7 @@ function cmdRun(args: string[], session: Session): void {
     }
     const result = applyEffectBinding(op, builtinName, entry, ":run");
     if (!result) return;
-    effects.set(op, result);
+    bindBothAliases(effects, op, result, elabMod.omega);
   }
 
   for (const [op, builtinName] of cmdEffectPairs) {
@@ -239,7 +242,7 @@ function cmdRun(args: string[], session: Session): void {
     }
     const result = applyEffectBinding(op, builtinName, entry, ":run");
     if (!result) return;
-    effects.set(op, result);
+    bindBothAliases(effects, op, result, elabMod.omega);
   }
 
   // Validate auto-bound print against any declared print ops.
@@ -321,16 +324,23 @@ function cmdEffects(session: Session): void {
   const { omega } = session.elabMod;
   if (omega.size === 0) { console.log("(no effect operations declared)"); return; }
 
-  // When qualified entries exist (multi-module), skip bare-name aliases to avoid
-  // showing the same operation twice. In single-file programs all names are bare.
+  // Show each operation once using its qualified name when available. Also display
+  // the bare op key in parentheses because EffectNode.op always carries the surface
+  // spelling (e.g. `perform read` → op "read"), so `:effect` accepts either form.
   const hasQualified = [...omega.keys()].some((k) => k.includes("."));
+  const seen = new Set<string>();
 
   for (const [key, entry] of omega) {
     if (hasQualified && !key.includes(".")) continue;
-    const bound = session.sessionEffects.get(key);
-    const tag = bound ? `  [= ${bound}]` : "";
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const bareName = key.includes(".") ? key.split(".").pop()! : key;
+    const bareNote = key !== bareName ? `  (op: "${bareName}")` : "";
+    const bound = session.sessionEffects.get(key) ?? session.sessionEffects.get(bareName);
+    const bindTag = bound ? `  [= ${bound}]` : "";
     console.log(
-      `  ${key} : ${showType(entry.inputTy)} -> ${showType(entry.outputTy)} ! ${entry.eff}${tag}`,
+      `  ${key} : ${showType(entry.inputTy)} -> ${showType(entry.outputTy)} ! ${entry.eff}${bareNote}${bindTag}`,
     );
   }
   console.log(`\nAvailable builtins: ${BUILTIN_NAMES.join(", ")}`);
@@ -379,6 +389,32 @@ function applyEffectBinding(
   const err = validateBinding(spec, entry);
   if (err) { console.error(`${ctx}: ${op}=${builtinName}: ${err}`); return null; }
   return spec.handler;
+}
+
+/**
+ * Bind an effect handler under both the given op key and its alias.
+ *
+ * EffectNode.op is always the surface spelling from `perform` (e.g. "read" for
+ * `perform read`, "App.read" for `perform App.read`). Omega stores each op under
+ * both its bare name and its qualified name. Populating both aliases ensures that
+ * any surface spelling resolves at runtime, regardless of which form the user
+ * provided to :effect.
+ */
+function bindBothAliases(
+  effects: import("../interpreter/eval.ts").EffectHandlers,
+  op: string,
+  handler: (v: import("../interpreter/value.ts").Value) => import("../interpreter/value.ts").Value,
+  omega: import("../typechecker/typed-ast.ts").Omega,
+): void {
+  effects.set(op, handler);
+  if (op.includes(".")) {
+    const bareName = op.split(".").pop()!;
+    if (omega.has(bareName)) effects.set(bareName, handler);
+  } else {
+    for (const key of omega.keys()) {
+      if (key.endsWith(`.${op}`)) effects.set(key, handler);
+    }
+  }
 }
 
 function formatMorphTy(m: MorphTy): string {
