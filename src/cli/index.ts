@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { showType } from "../typechecker/index.ts";
 import { elaborateAll } from "../elaborator/index.ts";
+import { runRepl } from "./repl.ts";
 import { interpret, MissingEffectHandlerError } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
 import { buildModuleGraph, type ModuleGraph } from "../module/resolver.ts";
@@ -51,10 +52,16 @@ if (command === "check") {
     die(USAGE);
   }
   runRun(filePath, defName, inputJson, effectBindings);
+} else if (command === "repl") {
+  if (filePath !== undefined || rest.length > 0) {
+    die("Usage: npm run cli -- repl");
+  }
+  runRepl();
 } else {
   console.error("Usage:");
   console.error("  npm run cli -- check <file> [--json]");
   console.error("  npm run cli -- run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...");
+  console.error("  npm run cli -- repl");
   process.exit(1);
 }
 
