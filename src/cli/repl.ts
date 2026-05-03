@@ -310,11 +310,8 @@ function evalExpr(exprText: string, session: Session): void {
   // Apply session effects, then validate auto-bound print.
   const effects = buildEffects(session.modulePrefix);
   for (const [op, builtinName] of session.sessionEffects) {
-    const entry = elabMod.omega.get(op);
-    if (!entry) continue;
-    const handler = applyEffectBinding(op, builtinName, entry, REPL_SENTINEL);
-    if (!handler) return;
-    bindBothAliases(effects, op, handler, elabMod.omega);
+    if (!elabMod.omega.has(op)) continue;
+    if (!bindBothAliases(effects, op, builtinName, elabMod.omega, REPL_SENTINEL)) return;
   }
 
   const printSpec = resolveBuiltin("print");
@@ -386,25 +383,19 @@ function cmdRun(args: string[], session: Session): void {
   const effects = buildEffects(modulePrefix);
 
   for (const [op, builtinName] of session.sessionEffects) {
-    const entry = elabMod.omega.get(op);
-    if (!entry) {
+    if (!elabMod.omega.has(op)) {
       console.error(`:run: session effect '${op}' is no longer declared; use :reload`);
       return;
     }
-    const result = applyEffectBinding(op, builtinName, entry, ":run");
-    if (!result) return;
-    bindBothAliases(effects, op, result, elabMod.omega);
+    if (!bindBothAliases(effects, op, builtinName, elabMod.omega, ":run")) return;
   }
 
   for (const [op, builtinName] of cmdEffectPairs) {
-    const entry = elabMod.omega.get(op);
-    if (!entry) {
+    if (!elabMod.omega.has(op)) {
       console.error(`:run: '${op}' is not a declared effect op`);
       return;
     }
-    const result = applyEffectBinding(op, builtinName, entry, ":run");
-    if (!result) return;
-    bindBothAliases(effects, op, result, elabMod.omega);
+    if (!bindBothAliases(effects, op, builtinName, elabMod.omega, ":run")) return;
   }
 
   // Validate auto-bound print against any declared print ops.
@@ -517,14 +508,14 @@ function cmdEffect(spec: string, session: Session): void {
   const op = spec.slice(0, eq);
   const builtinName = spec.slice(eq + 1);
 
-  const entry = session.elabMod.omega.get(op);
-  if (!entry) {
+  if (!session.elabMod.omega.has(op)) {
     console.error(`:effect: '${op}' is not a declared effect op in the loaded module`);
     return;
   }
 
-  const handler = applyEffectBinding(op, builtinName, entry, ":effect");
-  if (!handler) return;
+  // Validate against all omega aliases now to give early error feedback.
+  const tempEffects: EffectHandlers = new Map();
+  if (!bindBothAliases(tempEffects, op, builtinName, session.elabMod.omega, ":effect")) return;
 
   session.sessionEffects.set(op, builtinName);
   console.log(`Bound ${op} = ${builtinName}`);
@@ -572,29 +563,45 @@ function applyEffectBinding(
 }
 
 /**
- * Bind an effect handler under both the given op key and its alias.
+ * Validate and bind an effect handler under the given op key and all its omega
+ * aliases (bare ↔ qualified). Every alias is validated independently before any
+ * binding is installed, so a signature mismatch on any alias aborts the whole
+ * operation. Returns false (with error already printed) on any failure.
  *
- * EffectNode.op is always the surface spelling from `perform` (e.g. "read" for
- * `perform read`, "App.read" for `perform App.read`). Omega stores each op under
- * both its bare name and its qualified name. Populating both aliases ensures that
- * any surface spelling resolves at runtime, regardless of which form the user
- * provided to :effect.
+ * EffectNode.op is the surface spelling from `perform`. Omega stores each op
+ * under both its qualified name and its bare name, so both spellings resolve at
+ * runtime regardless of which form the user provided.
  */
 function bindBothAliases(
   effects: EffectHandlers,
   op: string,
-  handler: (v: Value) => Value,
+  builtinName: string,
   omega: Omega,
-): void {
-  effects.set(op, handler);
+  ctx: string,
+): boolean {
+  const keys: string[] = [op];
   if (op.includes(".")) {
     const bareName = op.split(".").pop()!;
-    if (omega.has(bareName)) effects.set(bareName, handler);
+    if (omega.has(bareName)) keys.push(bareName);
   } else {
     for (const key of omega.keys()) {
-      if (key.endsWith(`.${op}`)) effects.set(key, handler);
+      if (key.endsWith(`.${op}`)) keys.push(key);
     }
   }
+
+  const pairs: Array<[string, (v: Value) => Value]> = [];
+  for (const key of keys) {
+    const entry = omega.get(key);
+    if (!entry) continue;
+    const handler = applyEffectBinding(key, builtinName, entry, ctx);
+    if (!handler) return false;
+    pairs.push([key, handler]);
+  }
+
+  for (const [key, handler] of pairs) {
+    effects.set(key, handler);
+  }
+  return true;
 }
 
 function formatMorphTy(m: MorphTy): string {

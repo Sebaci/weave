@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { parseModule } from "../parser/parse.ts";
+import type { ParseModuleOpts } from "../parser/parse.ts";
 import type { Module } from "../surface/ast.ts";
 import type { SourceSpan } from "../surface/id.ts";
 
@@ -88,7 +89,14 @@ export function buildModuleGraph(entryFile: string, entrySource?: string): Resol
       return;
     }
 
-    const parseResult = parseModule(source);
+    // Unannotated defs (ty = null) are REPL-only syntax, not valid v1 surface.
+    // Allow them only for the REPL-injected in-memory entry source.
+    const isReplAugmentedEntry = filePath === absEntry && entrySource !== undefined;
+    const parseOpts: ParseModuleOpts = isReplAugmentedEntry
+      ? { allowUnannotatedDefs: true }
+      : {};
+
+    const parseResult = parseModule(source, parseOpts);
     if (!parseResult.ok) {
       for (const err of parseResult.errors) {
         errors.push({
@@ -103,25 +111,6 @@ export function buildModuleGraph(entryFile: string, entrySource?: string): Resol
     }
 
     const mod = parseResult.value;
-
-    // Unannotated defs (`def foo = ...`) are a REPL-internal construct.
-    // The v1 surface syntax requires a type annotation on every def.
-    // Allow them only for the REPL-injected in-memory entry source; reject in
-    // all real files (including imports resolved from disk).
-    const isReplAugmentedEntry = filePath === absEntry && entrySource !== undefined;
-    if (!isReplAugmentedEntry) {
-      for (const topDecl of mod.decls) {
-        if (topDecl.tag === "DefDecl" && topDecl.decl.ty === null) {
-          errors.push({
-            tag:     "parse-error",
-            filePath,
-            message: `def '${topDecl.decl.name}' requires a type annotation`,
-            span:    topDecl.decl.meta.span,
-          });
-        }
-      }
-      if (errors.length > 0) { black.add(filePath); return; }
-    }
     gray.add(filePath);
 
     // Resolve direct imports

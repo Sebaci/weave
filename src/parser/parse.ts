@@ -838,7 +838,12 @@ function resolveBaseType(name: string): "Int" | "Float" | "Bool" | "Text" | "Uni
 // Public entry point
 // ---------------------------------------------------------------------------
 
-export function parseModule(source: string): ParseResult<Module> {
+export type ParseModuleOpts = {
+  /** Allow unannotated `def name = expr` forms (ty = null). REPL-only — not valid v1 surface syntax. */
+  allowUnannotatedDefs?: boolean;
+};
+
+export function parseModule(source: string, opts?: ParseModuleOpts): ParseResult<Module> {
   let tokens: Token[];
   try {
     tokens = lex(source);
@@ -850,13 +855,28 @@ export function parseModule(source: string): ParseResult<Module> {
   }
 
   const parser = new Parser(tokens);
+  let mod: Module;
   try {
-    const mod = parser.parseModule();
-    return { ok: true, value: mod };
+    mod = parser.parseModule();
   } catch (e) {
     if (e instanceof PErr) {
       return { ok: false, errors: [{ message: e.message, span: e.span }] };
     }
     throw e;
   }
+
+  if (!opts?.allowUnannotatedDefs) {
+    const errors: ParseError[] = [];
+    for (const topDecl of mod.decls) {
+      if (topDecl.tag === "DefDecl" && topDecl.decl.ty === null) {
+        errors.push({
+          message: `def '${topDecl.decl.name}' requires a type annotation (': type')`,
+          span: topDecl.decl.meta.span,
+        });
+      }
+    }
+    if (errors.length > 0) return { ok: false, errors };
+  }
+
+  return { ok: true, value: mod };
 }
