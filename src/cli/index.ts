@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { showType } from "../typechecker/index.ts";
 import { elaborateAll } from "../elaborator/index.ts";
-import { interpret, MissingEffectHandlerError, type EffectHandlers } from "../interpreter/eval.ts";
+import { interpret, MissingEffectHandlerError } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
 import { buildModuleGraph, type ModuleGraph } from "../module/resolver.ts";
 import { checkAll, type LoadError } from "../module/loader.ts";
@@ -11,18 +11,7 @@ import {
   type JsonOutput,
 } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
-
-// ---------------------------------------------------------------------------
-// Host effect bindings supplied by the CLI runtime
-// ---------------------------------------------------------------------------
-
-const HOST_EFFECTS: EffectHandlers = new Map([
-  ["print", (v: Value) => {
-    if (v.tag !== "text") throw new Error(`print: expected Text, got ${v.tag}`);
-    process.stdout.write(v.value + "\n");
-    return VUnit;
-  }],
-]);
+import { buildEffects, resolveBuiltin, EffectBindError } from "./effects.ts";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -41,24 +30,31 @@ if (command === "check") {
 } else if (command === "run") {
   let defName: string | undefined;
   let inputJson: string | undefined;
+  const effectBindings: Array<[string, string]> = [];
+  const USAGE = "Usage: npm run cli -- run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...";
   const args = [...rest];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--def" && args[i + 1]) {
       defName = args[++i];
     } else if (args[i] === "--input" && args[i + 1] !== undefined) {
       inputJson = args[++i];
+    } else if (args[i] === "--effect" && args[i + 1] !== undefined) {
+      const spec = args[++i]!;
+      const eq = spec.indexOf("=");
+      if (eq < 1 || eq === spec.length - 1) die(`--effect must be in the form <op>=<builtin>\n${USAGE}`);
+      effectBindings.push([spec.slice(0, eq), spec.slice(eq + 1)]);
     } else {
-      die("Usage: npm run cli -- run <file> --def <name> [--input '<json>']");
+      die(USAGE);
     }
   }
   if (!filePath || !defName) {
-    die("Usage: npm run cli -- run <file> --def <name> [--input '<json>']");
+    die(USAGE);
   }
-  runRun(filePath, defName, inputJson);
+  runRun(filePath, defName, inputJson, effectBindings);
 } else {
   console.error("Usage:");
   console.error("  npm run cli -- check <file> [--json]");
-  console.error("  npm run cli -- run <file> --def <name> [--input '<json>']");
+  console.error("  npm run cli -- run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...");
   process.exit(1);
 }
 
@@ -99,7 +95,7 @@ function runCheck(file: string, json: boolean): void {
   }
 }
 
-function runRun(file: string, defName: string, inputJson?: string): void {
+function runRun(file: string, defName: string, inputJson?: string, effectBindings: Array<[string, string]> = []): void {
   // --- Resolve + Parse + Typecheck (all modules) ---
   const graphResult = buildModuleGraph(file);
   if (!graphResult.ok) {
@@ -151,9 +147,14 @@ function runRun(file: string, defName: string, inputJson?: string): void {
     die(`weave run: def '${defName}' is polymorphic and cannot be run directly`);
   }
 
-  const effects: EffectHandlers = new Map(HOST_EFFECTS);
-  for (const [bare, handler] of HOST_EFFECTS) {
-    effects.set(`${modulePrefix}.${bare}`, handler);
+  const effects = buildEffects(modulePrefix);
+  for (const [op, builtinName] of effectBindings) {
+    try {
+      effects.set(op, resolveBuiltin(builtinName));
+    } catch (e) {
+      if (e instanceof EffectBindError) die(`weave run: --effect ${op}=${builtinName}: ${e.message}`);
+      throw e;
+    }
   }
 
   // --- Resolve input value ---
