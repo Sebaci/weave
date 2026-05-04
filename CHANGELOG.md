@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.0] - 2026-05-04
+
+### Added
+- `weave repl`: interactive session for loading and exploring Weave programs. Commands: `:load <file>`, `:reload`, `:run <name> [--input '<json>'] [--effect op=builtin ...]`, `:type <name>`, `:show <name>`, `:defs`, `:effects`, `:effect <op>=<builtin>`, `:help`, `:quit` / `:q`. Session effect bindings persist across `:run` calls. `:effects` deduplicates ops across multi-module programs.
+- Inline expression evaluation at the REPL prompt: type any unit-sourced expression directly (e.g. `build { x = 1 }`, a reference to a loaded def, a pipeline) and the REPL evaluates and prints the result. Expressions are wrapped as a synthetic unit-sourced def, run through the full pipeline (parse → typecheck → elaborate → interpret), and discarded — they do not persist in session state. Typing a top-level keyword (`def`, `type`, `effect`, `module`, `import`) at the prompt produces a clear error explaining that statement forms are not supported in inline eval.
+
+---
+
 ## [0.9.0] - 2026-05-03
 
 ### Added

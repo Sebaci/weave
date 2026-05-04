@@ -119,6 +119,7 @@ npm run cli -- check <file> --json                     # machine-readable JSON d
 npm run cli -- run   <file> --def <name>               # run a Unit-input def
 npm run cli -- run   <file> --def <name> --input '<json>'  # run any monomorphic def with structured input
 npm run cli -- run   <file> --def <name> [--effect <op>=<builtin>]...  # bind effect ops to host implementations
+npm run cli -- repl                                    # interactive REPL
 ```
 
 Examples:
@@ -230,7 +231,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.9.0** — effect runtime binding: declare effects in Weave, bind them to host I/O at the CLI.
+Current stage: **v0.10.0** — interactive REPL with inline expression evaluation.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -238,7 +239,7 @@ Current stage: **v0.9.0** — effect runtime binding: declare effects in Weave, 
 * ✅ Elaboration rules & elaborator (typed AST → Graph IR)
 * ✅ Graph IR
 * ✅ Interpreter (graph IR evaluation)
-* ✅ CLI (`weave check`, `weave run`, `weave run --input`)
+* ✅ CLI (`weave check`, `weave run`, `weave run --input`, `weave repl`)
 * ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order, `case .field`)
 * ✅ Module system — import resolution, cycle detection, multi-module typechecking
 * ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
@@ -247,7 +248,7 @@ Current stage: **v0.9.0** — effect runtime binding: declare effects in Weave, 
 * ✅ VS Code extension — syntax highlighting + LSP server with diagnostics-on-save
 * ✅ `--input '<json>'` — type-directed JSON input for any monomorphic def
 * ✅ `--effect <op>=<builtin>` — bind declared effect ops to host I/O (`readFile`, `writeFile`, `getEnv`, `print`)
-* 🚧 REPL — not yet started
+* ✅ `weave repl` — interactive session: load files, run defs, evaluate inline expressions, manage effect bindings
 
 ---
 
