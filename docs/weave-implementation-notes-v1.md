@@ -678,6 +678,28 @@ Modules that import it proceed without any seeds from it, producing "Unknown nam
 or "Unknown type" errors rather than propagated type errors from the broken import.
 This avoids cascading confusion at the cost of some redundant diagnostics.
 
+### 9.21 Schema instantiation uses a pre-computation model, not inline expansion
+
+`elabSchemaInst` elaborates each argument expression once at the call site,
+producing an output port ID stored in `paramPorts`. Wherever the parameter appears
+in the body, its `Ref` node is resolved to this pre-computed output port via
+`paramQueue.shift()` — no new node is created, and the body does not re-evaluate
+the argument expression.
+
+This model is correct for schemas where the parameter is called exactly at the
+top-level input type (e.g. a single-level transform). It is semantically wrong
+for schemas where the parameter must be applied at an inner scope with a different
+input type — e.g. `map(f = addOne)` where `f` must be applied per-element inside
+a fold branch, not once to the whole list.
+
+The correct model would be **inline expansion**: substitute the argument expression
+into every use site in the body, elaborating a fresh sub-graph each time. This
+requires significant elaborator refactoring and is deferred post-v1.
+
+Until then: `map`-style schemas (parameters used inside fold branches) elaborate
+without a type error but produce semantically incorrect graphs. The interpreter
+will produce wrong results for such programs. This is a known v1 limitation.
+
 ### 9.17 Effect variables in def params are not supported in v1
 
 `resolveEffLevelFinal` previously silently converted any unresolved `EffVar`
