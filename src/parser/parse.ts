@@ -488,15 +488,10 @@ class Parser {
       this.advance();
       const inner = this.parseExpr();
       this.expect("RPAREN", "Expected ')' after grouped expression");
-      return inner.steps.length === 1
-        ? inner.steps[0]!
-        : { ...inner, meta: this.mkSpan(start) } as unknown as Step;
-        // Grouped pipeline with multiple steps: embed as a pipeline step.
-        // Handled by wrapping — the typechecker sees Pipeline as Expr, not Step,
-        // but we use a workaround: treat a grouped multi-step as a single step
-        // by converting the Expr to a Step we don't have. In practice, single-step
-        // groups are most common; multi-step groups need an intermediate node.
-        // We reuse Pipeline tag (unusual but accepted by the typechecker's loop).
+      if (inner.steps.length > 1) {
+        this.err("Parenthesised multi-step pipelines are not supported; write steps without parentheses");
+      }
+      return inner.steps[0]!;
     }
 
     return this.parseAtom();
