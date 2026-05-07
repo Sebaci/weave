@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.1] - 2026-05-07
+
+### Fixed
+- IR validation: `CataNode` branch input type is now checked with exact equality against the substituted payload type (IR-6), and `CaseNode` field branches are checked with exact equality against `merge(Pi, ρ)` (IR-6b)
+- IR validation: `DupNode` outputs are no longer exempt from the one-outgoing-wire rule (IR-2)
+- Elaborator: schema instantiation now inserts a `DupNode` when multiple arguments consume the same input port, preventing implicit sharing (IR-2)
+- Parser: grouped multi-step pipelines now produce a clear error instead of silently emitting a malformed AST
+
+### Changed
+- `src/compiler.ts` is now a Node-free core entry point (parse, typecheck, elaborate, interpret); `src/compiler-host.ts` extends it with filesystem module resolution for Node.js consumers
+- `applySubst` / `Subst` moved from `src/typechecker/unify.ts` to `src/types/subst.ts`
+
+---
+
 ## [0.10.0] - 2026-05-04
 
 ### Added
