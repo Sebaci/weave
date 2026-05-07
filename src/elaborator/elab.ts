@@ -1099,25 +1099,52 @@ function elabSchemaInst(
   // Apply tySubst/effSubst to the def's TypedExpr body.
   const substBody = substTypedExpr(def.body, tySubst, effSubst);
 
-  // Elaborate each argument and allocate one output port per use in the body.
+  // Each argument expression AND the body each wire from the input port.
+  // With N args there are N+1 consumers of inputPortId; introduce a DupNode
+  // so every consumer gets its own dedicated output port (IR-2).
+  const argEntries = [...argSubst.entries()];
+  const N = argEntries.length;
+  let argInputPortIds: PortId[];
+  let bodyInputPortId: PortId;
+  if (N === 0) {
+    argInputPortIds = [];
+    bodyInputPortId = inputPortId;
+  } else {
+    const inputTy = step.morphTy.input;
+    const dupInput = mkPort(inputTy);
+    ctx.builder.wire(inputPortId, dupInput.id);
+    const dupOutputPorts = Array.from({ length: N + 1 }, () => mkPort(inputTy));
+    const dupNode: DupNode = {
+      kind: "dup",
+      id: freshNodeId(), effect: "pure",
+      input: dupInput, outputs: dupOutputPorts,
+      provenance: [prov(srcId, "dup-for-schema-args")],
+    };
+    ctx.builder.addNode(dupNode);
+    argInputPortIds = dupOutputPorts.slice(0, N).map((p) => p.id);
+    bodyInputPortId = dupOutputPorts[N]!.id;
+  }
+
+  // Elaborate each argument from its own dedicated input port copy.
   const newParamPorts = new Map<string, PortId[]>(ctx.paramPorts);
-  for (const [paramName, argExpr] of argSubst) {
-    const argOutPortId = elabExpr(argExpr, inputPortId, ctx);
+  for (let i = 0; i < N; i++) {
+    const [paramName, argExpr] = argEntries[i]!;
+    const argOutPortId = elabExpr(argExpr, argInputPortIds[i]!, ctx);
     const uses = countParamRefUses(substBody, [paramName]).get(paramName) ?? 1;
     const argOutPort = { id: argOutPortId, ty: argExpr.morphTy.output };
     newParamPorts.set(paramName, allocateLocalPort(argOutPort, uses, ctx.builder, srcId));
   }
 
-  // Elaborate the substituted body with param ports.
+  // Elaborate the substituted body from its own dedicated input port copy.
   const instCtx: ElabContext = {
     ...ctx,
     paramPorts: newParamPorts,
-    inputPort:  inputPortId,
+    inputPort:  bodyInputPortId,
     inputType:  step.morphTy.input,
     sourceId:   srcId,
   };
 
-  return elabExpr(substBody, inputPortId, instCtx);
+  return elabExpr(substBody, bodyInputPortId, instCtx);
 }
 
 // ---------------------------------------------------------------------------
