@@ -624,8 +624,9 @@ function elabCaseField(
     : step.morphTy.input;
 
   const branches = step.node.branches.map((b) => ({
-    tag:   b.ctor,
-    graph: elabCaseFieldBranchHandler(b, contextTy, step.morphTy.output, ctx, srcId),
+    tag:          b.ctor,
+    rawPayloadTy: b.rawPayloadTy,
+    graph:        elabCaseFieldBranchHandler(b, contextTy, step.morphTy.output, ctx, srcId),
   }));
 
   let eff: ConcreteEffect = "pure";

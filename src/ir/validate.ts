@@ -157,16 +157,6 @@ function checkCataSubstitution(graph: Graph, errors: ValidationError[]) {
 // IR-6b helper
 // ---------------------------------------------------------------------------
 
-/**
- * IR-6b: For field-focused CaseNode (field present), each branch graph's
- * inPort type must be a Record that contains all contextTy fields with
- * matching types. This ensures context-row fields are always available in
- * branch handlers — whether it's ρ (nullary) or merge(Pi, ρ) (payload).
- *
- * Also checks that for payload branches (inPort has extra fields beyond ρ),
- * those extra fields (= Pi fields) do not overlap with contextTy field names,
- * enforcing the field disjointness invariant fields(Pi) ∩ fields(ρ) = ∅.
- */
 function checkCaseFieldBranchPorts(graph: Graph, errors: ValidationError[]) {
   for (const node of graph.nodes) {
     if (node.kind !== "case" || node.field === undefined || node.contextTy === undefined) continue;
@@ -176,44 +166,38 @@ function checkCaseFieldBranchPorts(graph: Graph, errors: ValidationError[]) {
       errors.push({ rule: "IR-6b", message: `CaseNode(field=${node.field}): contextTy is not a Record` });
       continue;
     }
-    const contextFieldNames = new Set(contextTy.fields.map((f) => f.name));
 
     for (const branch of node.branches) {
-      const inTy = branch.graph.inPort.ty;
-
-      if (inTy.tag !== "Record") {
+      if (branch.rawPayloadTy === undefined) {
         errors.push({
           rule: "IR-6b",
-          message: `CaseNode(field=${node.field}) branch '${branch.tag}': inPort type is not a Record`,
+          message: `CaseNode(field=${node.field}) branch '${branch.tag}': missing rawPayloadTy`,
         });
         continue;
       }
 
-      const branchFieldMap = new Map(inTy.fields.map((f) => [f.name, f.ty]));
-
-      // All contextTy fields must appear in the branch inPort with matching types
-      for (const cf of contextTy.fields) {
-        const actual = branchFieldMap.get(cf.name);
-        if (actual === undefined) {
-          errors.push({
-            rule: "IR-6b",
-            message: `CaseNode(field=${node.field}) branch '${branch.tag}': context field '${cf.name}' missing from branch inPort`,
-          });
-        } else if (!typeEq(actual, cf.ty)) {
-          errors.push({
-            rule: "IR-6b",
-            message: `CaseNode(field=${node.field}) branch '${branch.tag}': context field '${cf.name}' has type mismatch`,
-          });
-        }
+      const pi = branch.rawPayloadTy;
+      let expected: Type;
+      if (pi.tag === "Unit") {
+        expected = contextTy;
+      } else if (pi.tag === "Record") {
+        expected = { tag: "Record", fields: [...pi.fields, ...contextTy.fields], rest: null };
+      } else {
+        errors.push({
+          rule: "IR-6b",
+          message: `CaseNode(field=${node.field}) branch '${branch.tag}': rawPayloadTy is not Unit or Record`,
+        });
+        continue;
       }
 
-      // Extra fields (Pi fields for payload branches) must not overlap with contextTy names
-      for (const bf of inTy.fields) {
-        if (!contextFieldNames.has(bf.name)) {
-          // This is a Pi field — verify it is not also in contextTy (disjointness)
-          // Since we already know it's not in contextFieldNames, disjointness holds by construction.
-          // No additional check needed here; the Set lookup above is the authoritative test.
-        }
+      const actual = branch.graph.inPort.ty;
+      if (!typeEq(actual, expected)) {
+        errors.push({
+          rule: "IR-6b",
+          message:
+            `CaseNode(field=${node.field}) branch '${branch.tag}': inPort type mismatch` +
+            ` — expected ${showTy(expected)}, got ${showTy(actual)}`,
+        });
       }
     }
   }
