@@ -5,6 +5,7 @@
 
 import type { Graph, Node, Port, Wire, PortId } from "./ir.ts";
 import { effectJoin, isConcrete, typeEq } from "../types/check.ts";
+import { substAdt } from "../types/subst.ts";
 import type { ConcreteEffect, Type } from "../types/type.ts";
 
 export type ValidationError = { rule: string; message: string };
@@ -138,18 +139,14 @@ function checkCataSubstitution(graph: Graph, errors: ValidationError[]) {
   for (const node of graph.nodes) {
     if (node.kind !== "cata") continue;
     for (const branch of node.algebra) {
-      if (!isConcrete(branch.graph.inPort.ty)) {
+      const expected = substAdt(branch.rawPayloadTy, node.adtTy, node.carrierTy);
+      const actual = branch.graph.inPort.ty;
+      if (!typeEq(actual, expected)) {
         errors.push({
           rule: "IR-6",
-          message: `CataNode algebra branch '${branch.tag}': inPort type is not concrete`,
-        });
-      }
-      // IR-6: carrier substitution must have been applied — adtTy must not appear
-      // structurally in the branch graph's inPort type.
-      if (typeStructurallyContains(branch.graph.inPort.ty, node.adtTy)) {
-        errors.push({
-          rule: "IR-6",
-          message: `CataNode algebra branch '${branch.tag}': inPort type still contains adtTy — carrier substitution was not applied`,
+          message:
+            `CataNode algebra branch '${branch.tag}': inPort type mismatch` +
+            ` — expected ${showTy(expected)}, got ${showTy(actual)}`,
         });
       }
     }
@@ -222,14 +219,20 @@ function checkCaseFieldBranchPorts(graph: Graph, errors: ValidationError[]) {
   }
 }
 
-/** Returns true if `target` appears anywhere as a sub-type of `ty`. */
-function typeStructurallyContains(ty: Type, target: Type): boolean {
-  if (typeEq(ty, target)) return true;
+function showTy(ty: Type): string {
   switch (ty.tag) {
-    case "Named":   return ty.args.some((a) => typeStructurallyContains(a, target));
-    case "Record":  return ty.fields.some((f) => typeStructurallyContains(f.ty, target));
-    case "Arrow":   return typeStructurallyContains(ty.from, target) || typeStructurallyContains(ty.to, target);
-    default:        return false;
+    case "Unit":   return "Unit";
+    case "Int":    return "Int";
+    case "Float":  return "Float";
+    case "Bool":   return "Bool";
+    case "Text":   return "Text";
+    case "TyVar":  return ty.name;
+    case "Record":
+      return `{ ${ty.fields.map((f) => `${f.name}: ${showTy(f.ty)}`).join(", ")}${ty.rest ? ` | ${ty.rest}` : ""} }`;
+    case "Named":
+      return ty.args.length === 0 ? ty.name : `${ty.name} ${ty.args.map(showTy).join(" ")}`;
+    case "Arrow":
+      return `(${showTy(ty.from)} -> ${showTy(ty.to)})`;
   }
 }
 
