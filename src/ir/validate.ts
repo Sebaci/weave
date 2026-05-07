@@ -90,25 +90,18 @@ function checkPortsConnected(graph: Graph, allPortIds: Set<PortId>, errors: Vali
 // ---------------------------------------------------------------------------
 
 function checkNoImplicitSharing(graph: Graph, errors: ValidationError[]) {
-  // Collect the set of ports that are DupNode outputs (allowed multiple wires from).
-  const dupOutputs = new Set<PortId>();
-  for (const node of graph.nodes) {
-    if (node.kind === "dup") {
-      for (const p of node.outputs) dupOutputs.add(p.id);
-    }
-  }
-
-  // Count outgoing wires per port.
+  // Every port — including DupNode outputs — must have at most one outgoing wire.
+  // DupNode is the *source* of copies; its outputs are still single-consumer ports.
   const outgoing = new Map<PortId, number>();
   for (const wire of graph.wires) {
     outgoing.set(wire.from, (outgoing.get(wire.from) ?? 0) + 1);
   }
 
   for (const [portId, count] of outgoing) {
-    if (count > 1 && !dupOutputs.has(portId)) {
+    if (count > 1) {
       errors.push({
         rule: "IR-2",
-        message: `Port '${portId}' has ${count} outgoing wires but is not a DupNode output (implicit sharing)`,
+        message: `Port '${portId}' has ${count} outgoing wires (implicit sharing)`,
       });
     }
   }
