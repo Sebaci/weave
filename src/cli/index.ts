@@ -83,7 +83,7 @@ function runCheck(file: string, json: boolean): void {
   }
 
   const sources = graphSources(graphResult.graph);
-  const loadResult = checkAll(graphResult.graph, file);
+  const loadResult = checkAll(graphResult.graph, resolve(file));
   if (!loadResult.ok) {
     if (json) {
       emitJson({ ok: false, errors: loadResult.errors.map(loadErrorToJson) });
@@ -113,7 +113,8 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
   }
 
   const sources = graphSources(graphResult.graph);
-  const loadResult = checkAll(graphResult.graph, file);
+  const absFile  = resolve(file);
+  const loadResult = checkAll(graphResult.graph, absFile);
   if (!loadResult.ok) {
     for (const err of loadResult.errors) {
       console.error(renderLoadError(err, sources.get(err.filePath)));
@@ -121,7 +122,6 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
     process.exit(1);
   }
 
-  const absFile  = resolve(file);
   const typedMod = loadResult.modules.get(absFile);
   if (!typedMod) die(`weave run: internal error: entry module not found after check`);
   const mod = graphResult.graph.get(absFile)!.mod;

@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { checkModule, type ModuleExports } from "../typechecker/check.ts";
 import type { DefInfo, CtorInfo, TypeDeclInfo, TypeDeclEnv, Omega } from "../typechecker/env.ts";
 import type { TypedModule, TypedTypeDecl } from "../typechecker/typed-ast.ts";
@@ -173,8 +172,9 @@ function mergeExports(
  * Each module is checked with its direct imports' exports seeded into its env.
  * Returns a map from absolute file path to TypedModule.
  */
+/** entryFile must be an absolute path (caller is responsible for resolving). */
 export function checkAll(graph: ModuleGraph, entryFile: string): LoadResult {
-  const absEntry = resolve(entryFile);
+  const absEntry = entryFile;
   const order    = topoSort(graph, absEntry);
 
   const checked: Map<string, TypedModule> = new Map();

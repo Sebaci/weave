@@ -1,9 +1,9 @@
 /**
- * Public compiler API — single entry point for all consumers.
+ * Core compiler API — no Node.js dependencies.
  *
- * Layers the four compiler phases behind stable named operations.
- * CLI, LSP, and future browser consumers should call these functions
- * rather than reaching into internal modules directly.
+ * Safe to import in browser and pure in-memory contexts.
+ * For Node.js consumers that need filesystem module resolution,
+ * use compiler-host.ts instead.
  */
 
 // ---------------------------------------------------------------------------
@@ -11,16 +11,13 @@
 // ---------------------------------------------------------------------------
 
 export { parseModule } from "./parser/index.ts";
-export type { ParseResult } from "./parser/index.ts";
+export type { ParseResult, ParseError } from "./parser/index.ts";
 
 // ---------------------------------------------------------------------------
-// Phase 2 — Resolve + Typecheck
+// Phase 2 — Typecheck (graph supplied by caller)
 // ---------------------------------------------------------------------------
 
-export { buildModuleGraph } from "./module/resolver.ts";
 export { checkAll } from "./module/loader.ts";
-
-export type { ModuleGraph, ModuleGraphNode, ResolveResult, ResolverError } from "./module/resolver.ts";
 export type { LoadResult, LoadError } from "./module/loader.ts";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +37,7 @@ export type { EffectHandlers } from "./interpreter/eval.ts";
 // Shared types used across phases
 // ---------------------------------------------------------------------------
 
+export type { ModuleGraph, ModuleGraphNode } from "./module/resolver.ts";
 export type { ElaboratedModule } from "./ir/ir.ts";
 export type { TypedModule } from "./typechecker/typed-ast.ts";
 export type { Value } from "./interpreter/value.ts";
-export type { ParseError } from "./parser/index.ts";
