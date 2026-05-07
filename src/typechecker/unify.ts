@@ -20,17 +20,14 @@ import { typeEq, effectJoin } from "../types/check.ts";
 
 // Subst, EffSubst and their application live in the types layer so the
 // elaborator can use them without crossing into the typechecker layer.
-// Re-exported here for the typechecker's own use and for backward compatibility.
-export type {
-  Subst,
-  EffSubst,
+// Imported for local use and re-exported for backward compatibility.
+import {
+  type Subst, type EffSubst,
+  emptySubst, emptyEffSubst,
+  applySubst, applyEffSubst,
 } from "../types/subst.ts";
-export {
-  emptySubst,
-  emptyEffSubst,
-  applySubst,
-  applyEffSubst,
-} from "../types/subst.ts";
+export type { Subst, EffSubst } from "../types/subst.ts";
+export { emptySubst, emptyEffSubst, applySubst, applyEffSubst } from "../types/subst.ts";
 
 /** Merge two substitutions; entries in `b` override entries in `a`. */
 export function composeSubst(a: Subst, b: Subst): Subst {
