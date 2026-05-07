@@ -781,6 +781,7 @@ They are not recoverable and should propagate to the top-level error boundary.
 - `compiler.ts` re-exports phase entry points without adding error-handling logic.
   It is a thin API boundary, not an error aggregator.
 - Consumers (CLI, LSP, tests) are responsible for checking `ParseResult.errors`,
-  `LoadResult`, and `ElaborationResult` before passing outputs to the next phase.
+  `LoadResult`, and `TypeResult<ElaboratedModule>` (from `elaborateAll`) before
+  passing outputs to the next phase.
 - The public API does not suppress or repackage internal `throw`s; they remain
   visible to the caller as unhandled exceptions signalling compiler bugs.
