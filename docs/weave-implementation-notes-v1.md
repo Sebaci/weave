@@ -713,3 +713,74 @@ Fix: `resolveEffLevelFinal` now returns a type error when an `EffVar` is
 encountered. Effect polymorphism on def params requires threading `EffVar` through
 `MorphTy.eff: ConcreteEffect`, which is a type system change beyond v1 scope.
 In v1, def params must carry a concrete effect annotation.
+
+---
+
+## 11. Error Model Policy
+
+This section records the canonical error-handling contract for each compiler
+phase. Future changes to any phase must stay within this contract.
+
+### 11.1 Two categories of error
+
+**User errors** — caused by invalid source code or missing runtime bindings.
+They must be reported as structured, recoverable values with a human-readable
+message. The compiler must never throw for a user error.
+
+**Internal invariant violations** — caused by bugs in the compiler itself
+(e.g. an elaborated graph that violates an IR invariant, or a phase receiving
+input that a prior phase should have rejected). These are thrown as `Error`
+with a prefix that identifies the violating phase (e.g. `"Elaborator internal:"`).
+They are not recoverable and should propagate to the top-level error boundary.
+
+### 11.2 Parser (`src/parser/`)
+
+- Structural parse errors (unexpected token, bad syntax, unsupported construct)
+  are reported via `this.err(msg)` which pushes a `PErr` node into the AST and
+  records the error. `this.err` does **not** throw.
+- All user-visible parse mistakes must go through `this.err`, never `throw`.
+- Parse errors are collected in `ParseResult.errors`; callers check this before
+  proceeding to later phases.
+- `throw` inside the parser signals a parser bug, not a user error.
+
+### 11.3 Typechecker (`src/typechecker/`)
+
+- User type errors are returned as `TypeResult<T>` failures via `fail(errors)`
+  or `typeError(msg, nodeId, code)`. These are structured values, not exceptions.
+- Unification failures are returned from `unify(...)` as `{ ok: false, message }`.
+  Callers must propagate them rather than throwing.
+- Typechecking never throws for user errors. `throw` inside the typechecker
+  signals a typechecker bug.
+
+### 11.4 Elaborator (`src/elaborator/`)
+
+- User-visible elaboration errors (invalid graph structure, unsupported construct
+  detected after typechecking) are returned via `fail(...)` which produces an
+  `E_ELABORATION`-tagged result consumed by the CLI and LSP.
+- Internal invariant violations (elaborator receives an inconsistent typed AST
+  that should have been caught by the typechecker) are thrown with the prefix
+  `"Elaborator internal: "`. These indicate compiler bugs, not user errors.
+- The distinction matters for error reporting: `fail(...)` paths are displayed to
+  the user; `throw` paths are caught by the top-level boundary and displayed as
+  internal compiler errors.
+
+### 11.5 Interpreter (`src/interpreter/`)
+
+- `MissingEffectHandlerError` is the only expected runtime error. It is thrown
+  when a `perform` node is evaluated but the required effect name has no handler
+  in the runtime binding map. Callers (CLI, REPL) must catch it and report it as
+  a user error (missing runtime binding), not a compiler bug.
+- All other `throw new Error(...)` calls inside the interpreter are invariant
+  violations: they indicate that elaboration produced a malformed graph (a
+  compiler bug). They should propagate uncaught to the top-level error boundary.
+- The interpreter performs no type checking and no error recovery beyond
+  `MissingEffectHandlerError`.
+
+### 11.6 Public API facade (`src/compiler.ts`)
+
+- `compiler.ts` re-exports phase entry points without adding error-handling logic.
+  It is a thin API boundary, not an error aggregator.
+- Consumers (CLI, LSP, tests) are responsible for checking `ParseResult.errors`,
+  `LoadResult`, and `ElaborationResult` before passing outputs to the next phase.
+- The public API does not suppress or repackage internal `throw`s; they remain
+  visible to the caller as unhandled exceptions signalling compiler bugs.
