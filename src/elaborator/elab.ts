@@ -13,8 +13,7 @@
 
 import type { Type, ConcreteEffect } from "../types/type.ts";
 import { effectJoin } from "../types/check.ts";
-import { substAdt } from "../types/subst.ts";
-import { applySubst } from "../typechecker/unify.ts";
+import { substAdt, applySubst } from "../types/subst.ts";
 import { isConcrete } from "../types/check.ts";
 
 import type {
@@ -23,7 +22,7 @@ import type {
   TypedTypeDecl,
 } from "../typechecker/typed-ast.ts";
 import type { CtorInfo } from "../typechecker/env.ts";
-import type { Subst } from "../typechecker/unify.ts";
+import type { Subst } from "../types/subst.ts";
 import type { SourceNodeId } from "../surface/id.ts";
 import type { SurfaceLiteral } from "../surface/ast.ts";
 

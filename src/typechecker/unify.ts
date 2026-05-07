@@ -18,45 +18,19 @@ import {
 import { substTyVar, substEffVar } from "../types/subst.ts";
 import { typeEq, effectJoin } from "../types/check.ts";
 
-// ---------------------------------------------------------------------------
-// Substitution types
-// ---------------------------------------------------------------------------
-
-/** Type variable substitution: varName → concrete (or partially substituted) Type. */
-export type Subst = Map<string, Type>;
-
-/** Effect variable substitution: varName → ConcreteEffect. */
-export type EffSubst = Map<string, ConcreteEffect>;
-
-export const emptySubst: Subst = new Map();
-export const emptyEffSubst: EffSubst = new Map();
-
-// ---------------------------------------------------------------------------
-// Substitution application
-// ---------------------------------------------------------------------------
-
-/**
- * Apply a substitution to a type, fully resolving all type variables it mentions.
- * Chains through the substitution map: if a → b and b → Int, resolves a → Int.
- */
-export function applySubst(ty: Type, subst: Subst, effSubst: EffSubst = emptyEffSubst): Type {
-  // Apply type variable substitutions
-  let result = ty;
-  for (const [varName, replacement] of subst) {
-    result = substTyVar(result, varName, replacement);
-  }
-  // Apply effect variable substitutions
-  for (const [varName, eff] of effSubst) {
-    result = substEffVar(result, varName, eff);
-  }
-  return result;
-}
-
-/** Apply substitution to an EffectLevel. */
-export function applyEffSubst(eff: EffectLevel, effSubst: EffSubst): EffectLevel {
-  if (typeof eff === "string") return eff;
-  return effSubst.get(eff.name) ?? eff;
-}
+// Subst, EffSubst and their application live in the types layer so the
+// elaborator can use them without crossing into the typechecker layer.
+// Re-exported here for the typechecker's own use and for backward compatibility.
+export type {
+  Subst,
+  EffSubst,
+} from "../types/subst.ts";
+export {
+  emptySubst,
+  emptyEffSubst,
+  applySubst,
+  applyEffSubst,
+} from "../types/subst.ts";
 
 /** Merge two substitutions; entries in `b` override entries in `a`. */
 export function composeSubst(a: Subst, b: Subst): Subst {

@@ -1,7 +1,11 @@
 /**
  * Substitution operations on Type.
  *
- * Four distinct operations, each with a specific caller:
+ * Substitution maps (Subst, EffSubst) and their application (applySubst,
+ * applyEffSubst) live here so the elaborator can use them without reaching
+ * into the typechecker layer.
+ *
+ * Four structural traversals, each with a specific caller:
  *   substTyVar  — typechecker (unification)
  *   substAdt    — elaborator (CataNode Pi[A/μF] substitution)
  *   substRowVar — elaborator (over, let live-set row expansion)
@@ -222,4 +226,38 @@ function resolveEffVar(level: EffectLevel, varName: string, replacement: Concret
 
 function substFieldEffVar(f: RowField, varName: string, eff: ConcreteEffect): RowField {
   return { name: f.name, ty: substEffVar(f.ty, varName, eff) };
+}
+
+// ---------------------------------------------------------------------------
+// Subst / EffSubst — substitution maps and application
+// ---------------------------------------------------------------------------
+
+/** Type variable substitution map: varName → concrete (or partially resolved) Type. */
+export type Subst = Map<string, Type>;
+
+/** Effect variable substitution map: varName → ConcreteEffect. */
+export type EffSubst = Map<string, ConcreteEffect>;
+
+export const emptySubst: Subst = new Map();
+export const emptyEffSubst: EffSubst = new Map();
+
+/**
+ * Apply a substitution to a type, fully resolving all type variables it mentions.
+ * Chains through the substitution map: if a → b and b → Int, resolves a → Int.
+ */
+export function applySubst(ty: Type, subst: Subst, effSubst: EffSubst = emptyEffSubst): Type {
+  let result = ty;
+  for (const [varName, replacement] of subst) {
+    result = substTyVar(result, varName, replacement);
+  }
+  for (const [varName, eff] of effSubst) {
+    result = substEffVar(result, varName, eff);
+  }
+  return result;
+}
+
+/** Apply an effect substitution to an EffectLevel. */
+export function applyEffSubst(eff: EffectLevel, effSubst: EffSubst): EffectLevel {
+  if (typeof eff === "string") return eff;
+  return effSubst.get(eff.name) ?? eff;
 }
