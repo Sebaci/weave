@@ -520,11 +520,19 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
     );
   }
 
+  // Apply the final output-unification substitution to the body before storing.
+  // checkCaseOrFold creates fresh type variables (via freshenCtor/freshenDef) that
+  // are only connected to the def's declared type variables (like `b`) through this
+  // final unification. Without this step those fresh vars persist in the stored body
+  // and cannot be resolved by elabSchemaInst's tySubst, which only maps declared
+  // type variable names to concrete types.
+  const finalBody = substTypedExpr(typedBody, unifyR.subst, unifyR.effSubst);
+
   return ok({
     name:        decl.name,
     params:      params.map((p) => ({ name: p.name, morphTy: p.morphTy })),
     morphTy,
-    body:        typedBody,
+    body:        finalBody,
     surfaceBody: decl.body,
     sourceId:    decl.meta.id,
   });
@@ -1406,9 +1414,10 @@ function countLocalUses(name: string, expr: TypedExpr): number {
       case "Case":      node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
       case "CaseField": node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
       case "Fold":      node.branches.forEach((b) => visitTypedHandler(b.handler)); break;
-      case "Over":      visitStep(node.transform); break;
-      case "Let":       visitTypedExpr(node.rhs); visitTypedExpr(node.body); break;
-      case "SchemaInst": [...node.argSubst.values()].forEach(visitTypedExpr); break;
+      case "Over":         visitStep(node.transform); break;
+      case "GroupedExpr":  visitTypedExpr(node.body); break;
+      case "Let":          visitTypedExpr(node.rhs); visitTypedExpr(node.body); break;
+      case "SchemaInst":   [...node.argSubst.values()].forEach(visitTypedExpr); break;
       default: break;
     }
   };
@@ -1487,8 +1496,10 @@ function checkSchemaInst(
 
   for (const param of freshParams) {
     const arg = argMap.get(param.name)!;
-    // Check the argument expression
-    const argR = checkExpr(arg.expr, inputTy, env);
+    // Check the argument as a standalone morphism against the parameter's input type.
+    // Schema args must not capture caller locals (they are morphisms, not closures).
+    const paramInputTy = applySubst(param.morphTy.input, subst, effSubst);
+    const argR = checkExpr(arg.expr, paramInputTy, { ...env, locals: new Map() });
     if (!argR.ok) { errors.push(...argR.errors); continue; }
     const typedArg = argR.value;
 
@@ -1692,6 +1703,8 @@ function substTypedNode(node: TypedNode, subst: Subst, effSubst: EffSubst): Type
       };
     case "Over":
       return { tag: "Over", field: node.field, transform: substTypedStep(node.transform, subst, effSubst) };
+    case "GroupedExpr":
+      return { tag: "GroupedExpr", body: substTypedExpr(node.body, subst, effSubst) };
     case "Let":
       return {
         tag:     "Let",

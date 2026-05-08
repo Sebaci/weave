@@ -484,23 +484,11 @@ dangling — no node consumes it — which is an IR structural violation.
 `step.morphTy.input`, and now that `morphTy.input` carries the real contextual type,
 the DropNode is emitted correctly whenever needed.
 
-### 9.10 ElabContext.paramPorts is a PortId[] queue, not a single PortId
+### 9.10 Schema instantiation — inline expansion replaces paramPorts
 
-Schema params are elaborated as arg expressions at the SchemaInst call site. If
-the same param is referenced n times in the def body, each use is a `Ref` node
-that, at elaboration time, must be wired to a distinct output port — otherwise
-n wires leave the same source port, violating IR-2.
-
-Fix: `ElabContext.paramPorts` is `Map<string, PortId[]>` (a queue). For each
-param, `elabSchemaInst` counts how many `Ref` nodes with that `defId` appear in
-the substituted body, calls `allocateLocalPort` to create a DupNode with that
-many outputs, and stores the resulting queue. Each `Ref` lookup via `.shift()`
-consumes one port from the front.
-
-The count is computed by `countParamRefUses` — a mirror of `countUsesInTypedExpr`
-that visits `Ref` nodes by `defId` instead of `LocalRef` nodes by `name`. The
-same recursive structure (Build/Fanout/Case/Fold/Over/Let/SchemaInst) is needed
-because param refs can appear inside nested sub-expressions.
+The original pre-computation model (`ElabContext.paramPorts`, a `Map<string, PortId[]>` queue)
+has been replaced by full inline expansion in `elabSchemaInst`. See §9.21 for the complete
+description. `ElabContext.paramPorts` and `countParamRefUses` no longer exist.
 
 ### 9.11 collectLocalNames in checkBuild must recurse into SchemaInst args
 
@@ -678,27 +666,47 @@ Modules that import it proceed without any seeds from it, producing "Unknown nam
 or "Unknown type" errors rather than propagated type errors from the broken import.
 This avoids cascading confusion at the cost of some redundant diagnostics.
 
-### 9.21 Schema instantiation uses a pre-computation model, not inline expansion
+### 9.21 Schema instantiation uses inline expansion (definition-level substitution)
 
-`elabSchemaInst` elaborates each argument expression once at the call site,
-producing an output port ID stored in `paramPorts`. Wherever the parameter appears
-in the body, its `Ref` node is resolved to this pre-computed output port via
-`paramQueue.shift()` — no new node is created, and the body does not re-evaluate
-the argument expression.
+`elabSchemaInst` elaborates schema instantiation via full inline expansion, which
+is the correct spec-compliant model (definition-level substitution, not runtime
+function application):
 
-This model is correct for schemas where the parameter is called exactly at the
-top-level input type (e.g. a single-level transform). It is semantically wrong
-for schemas where the parameter must be applied at an inner scope with a different
-input type — e.g. `map(f = addOne)` where `f` must be applied per-element inside
-a fold branch, not once to the whole list.
+1. `substTypedExpr(def.body, tySubst, effSubst)` — apply the call-site type and
+   effect substitution to the def's stored body, resolving all declared type vars
+   (e.g. `a → Maybe Int`, `b → Int`) to concrete types.
+2. `substTypedExpr(argExpr, tySubst, effSubst)` — apply the same substitution to
+   each argument expression so its morphTy is also concrete.
+3. `expandParamRefs(substBody, expandedArgSubst)` — replace every `Ref` step
+   whose `defId` is a param name with the inline steps of the corresponding
+   argument expression. Multi-step args in single-step positions (e.g.
+   `Over.transform`) are wrapped in a `GroupedExpr` TypedNode rather than a new
+   IR node.
+4. `elabExpr(expandedBody, inputPortId, ctx)` — elaborate the expanded body
+   from the call-site input port.
 
-The correct model would be **inline expansion**: substitute the argument expression
-into every use site in the body, elaborating a fresh sub-graph each time. This
-requires significant elaborator refactoring and is deferred post-v1.
+Each `Ref` use site receives its own copy of the argument steps — semantically
+equivalent to writing the body with the argument inlined at every occurrence.
+`ElabContext.paramPorts` has been removed; schema args are never pre-elaborated.
 
-Until then: `map`-style schemas (parameters used inside fold branches) elaborate
-without a type error but produce semantically incorrect graphs. The interpreter
-will produce wrong results for such programs. This is a known v1 limitation.
+**Typechecker fix required for this to work**: `checkDef` must apply
+`unifyR.subst` (the result of unifying `typedBody.morphTy.output` with the
+declared output type) back to `typedBody` before storing it. Without this step,
+fresh type variables created by `freshenCtor` and `freshenDef` inside
+`checkCaseOrFold` persist in the stored body. These fresh vars are only connected
+to the def's declared type variable names (e.g. `b`) via `unifyR.subst`. The
+elaborator's `substTypedExpr` only maps declared var names to concrete types, so
+unresolved fresh vars produce IR-7 violations (non-concrete port types).
+
+Fix location: `checkDef` in `src/typechecker/check.ts` — add
+`substTypedExpr(typedBody, unifyR.subst, unifyR.effSubst)` before the final
+`return ok({...})`.
+
+**Argument typechecking fix**: schema args are checked against the parameter's
+declared input type (after applying the freshened substitution), not against the
+call-site's current pipeline input. This is correct: `map(f: addOne)` should
+check `addOne : Int -> Int` against param `f: a -> b` (where `a` is the element
+type), not against `List Int` (the list type).
 
 ### 9.17 Effect variables in def params are not supported in v1
 

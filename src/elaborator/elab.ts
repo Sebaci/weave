@@ -55,12 +55,6 @@ type ElabContext = {
    * Each LocalRef pops the front element; DupNode ensures one output per use.
    */
   locals:     Map<string, PortId[]>;
-  /**
-   * Schema parameter ports: param name → queue of PortIds (one per use).
-   * When elaborating a SchemaInst body, Ref nodes targeting param names
-   * pop the front element; a DupNode ensures one output per use.
-   */
-  paramPorts: Map<string, PortId[]>;
   /** The current morphism's input port. */
   inputPort:  PortId;
   /** Fully concrete type at inputPort. Required for over/let passthrough expansion. */
@@ -190,7 +184,6 @@ function elaborateDef(
     ctors:      new Map(), // populated below
     omega,
     locals:     new Map(),
-    paramPorts: new Map(),
     inputPort:  inPort.id,
     inputType:  def.morphTy.input,
     builder,
@@ -259,11 +252,6 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
     // -----------------------------------------------------------------------
     case "Ref": {
       const { defId } = step.node;
-      // Schema param substitution: if defId is in paramPorts, pop next port from queue.
-      const paramQueue = ctx.paramPorts.get(defId);
-      if (paramQueue !== undefined && paramQueue.length > 0) {
-        return paramQueue.shift()!;
-      }
       const outPort = mkPort(step.morphTy.output);
       const inPort  = mkPort(step.morphTy.input);
       builder.wire(inputPortId, inPort.id);
@@ -419,7 +407,14 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
     }
 
     // -----------------------------------------------------------------------
-    // SchemaInst — definition-level substitution
+    // GroupedExpr — inline arg wrapper (created by expandParamRefs only)
+    // -----------------------------------------------------------------------
+    case "GroupedExpr": {
+      return elabExpr(step.node.body, inputPortId, ctx);
+    }
+
+    // -----------------------------------------------------------------------
+    // SchemaInst — definition-level substitution via inline expansion
     // -----------------------------------------------------------------------
     case "SchemaInst": {
       return elabSchemaInst(step as TypedStep & { node: { tag: "SchemaInst" } }, inputPortId, ctx, srcId);
@@ -726,7 +721,6 @@ function elabCaseFieldBranchHandler(
     inputPort:  inPort.id,
     inputType:  branch.payloadTy,
     locals,
-    paramPorts: new Map(),
     sourceId:   srcId,
   };
 
@@ -799,7 +793,6 @@ function elabBranchHandler(
       inputPort:  inPort.id,
       inputType:  branch.payloadTy,
       locals:     new Map(),
-      paramPorts: new Map(),
       sourceId:   srcId,
     };
     const outPortId = elabExpr(handler.body, inPort.id, branchCtx);
@@ -865,7 +858,6 @@ function elabBranchHandler(
     inputPort:  inPort.id,
     inputType:  branch.payloadTy,
     locals,
-    paramPorts: new Map(),
     sourceId:   srcId,
   };
 
@@ -1080,7 +1072,7 @@ function elabLet(
 }
 
 // ---------------------------------------------------------------------------
-// Schema instantiation
+// Schema instantiation — inline expansion
 // ---------------------------------------------------------------------------
 
 function elabSchemaInst(
@@ -1095,55 +1087,105 @@ function elabSchemaInst(
     throw new Error(`Elaborator internal: SchemaInst def '${defName}' not found`);
   }
 
-  // Apply tySubst/effSubst to the def's TypedExpr body.
+  // 1. Apply tySubst/effSubst to the def body — all type variables become concrete.
   const substBody = substTypedExpr(def.body, tySubst, effSubst);
 
-  // Each argument expression AND the body each wire from the input port.
-  // With N args there are N+1 consumers of inputPortId; introduce a DupNode
-  // so every consumer gets its own dedicated output port (IR-2).
-  const argEntries = [...argSubst.entries()];
-  const N = argEntries.length;
-  let argInputPortIds: PortId[];
-  let bodyInputPortId: PortId;
-  if (N === 0) {
-    argInputPortIds = [];
-    bodyInputPortId = inputPortId;
-  } else {
-    const inputTy = step.morphTy.input;
-    const dupInput = mkPort(inputTy);
-    ctx.builder.wire(inputPortId, dupInput.id);
-    const dupOutputPorts = Array.from({ length: N + 1 }, () => mkPort(inputTy));
-    const dupNode: DupNode = {
-      kind: "dup",
-      id: freshNodeId(), effect: "pure",
-      input: dupInput, outputs: dupOutputPorts,
-      provenance: [prov(srcId, "dup-for-schema-args")],
-    };
-    ctx.builder.addNode(dupNode);
-    argInputPortIds = dupOutputPorts.slice(0, N).map((p) => p.id);
-    bodyInputPortId = dupOutputPorts[N]!.id;
+  // 2. Apply tySubst/effSubst to each arg expression so its morphTy is also concrete.
+  const expandedArgSubst = new Map<string, TypedExpr>();
+  for (const [paramName, argExpr] of argSubst) {
+    expandedArgSubst.set(paramName, substTypedExpr(argExpr, tySubst, effSubst));
   }
 
-  // Elaborate each argument from its own dedicated input port copy.
-  const newParamPorts = new Map<string, PortId[]>(ctx.paramPorts);
-  for (let i = 0; i < N; i++) {
-    const [paramName, argExpr] = argEntries[i]!;
-    const argOutPortId = elabExpr(argExpr, argInputPortIds[i]!, ctx);
-    const uses = countParamRefUses(substBody, [paramName]).get(paramName) ?? 1;
-    const argOutPort = { id: argOutPortId, ty: argExpr.morphTy.output };
-    newParamPorts.set(paramName, allocateLocalPort(argOutPort, uses, ctx.builder, srcId));
-  }
+  // 3. Inline-expand: replace every Ref to a param name with the arg's steps.
+  //    Each use site gets its own copy — semantically equivalent to writing the
+  //    body with the argument inlined at every occurrence (spec §definition-level
+  //    substitution). No paramPorts, no pre-elaboration, no shared ports.
+  const expandedBody = expandParamRefs(substBody, expandedArgSubst);
 
-  // Elaborate the substituted body from its own dedicated input port copy.
-  const instCtx: ElabContext = {
-    ...ctx,
-    paramPorts: newParamPorts,
-    inputPort:  bodyInputPortId,
-    inputType:  step.morphTy.input,
-    sourceId:   srcId,
+  // 4. Elaborate the expanded body normally from the call-site input port.
+  return elabExpr(expandedBody, inputPortId, ctx);
+}
+
+// ---------------------------------------------------------------------------
+// Param-ref inline expansion
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk a TypedExpr and replace every Ref step whose defId is a key in
+ * argSubst with the inline steps of the corresponding arg TypedExpr.
+ * This is definition-level substitution: each use site receives its own copy.
+ */
+function expandParamRefs(expr: TypedExpr, argSubst: Map<string, TypedExpr>): TypedExpr {
+  if (argSubst.size === 0) return expr;
+  return {
+    steps:    expr.steps.flatMap((s) => expandStep(s, argSubst)),
+    morphTy:  expr.morphTy,
+    sourceId: expr.sourceId,
   };
+}
 
-  return elabExpr(substBody, bodyInputPortId, instCtx);
+function expandStep(step: TypedStep, argSubst: Map<string, TypedExpr>): TypedStep[] {
+  if (step.node.tag === "Ref") {
+    const argExpr = argSubst.get(step.node.defId);
+    if (argExpr !== undefined) {
+      // Inline the arg's steps in place of this Ref.
+      return argExpr.steps;
+    }
+  }
+  return [{ ...step, node: expandNode(step.node, argSubst) }];
+}
+
+function expandNode(node: TypedNode, argSubst: Map<string, TypedExpr>): TypedNode {
+  const exp  = (e: TypedExpr) => expandParamRefs(e, argSubst);
+  const expB = (b: TypedBranch) => expandBranch(b, argSubst);
+
+  switch (node.tag) {
+    case "Ref":
+    case "LocalRef":
+    case "Ctor":
+    case "Projection":
+    case "Literal":
+    case "Perform":
+      return node;
+    case "Build":
+      return { tag: "Build", fields: node.fields.map((f) => ({ name: f.name, expr: exp(f.expr) })) };
+    case "Fanout":
+      return { tag: "Fanout", fields: node.fields.map((f) => ({ name: f.name, expr: exp(f.expr) })) };
+    case "Case":
+      return { tag: "Case", branches: node.branches.map(expB) };
+    case "CaseField":
+      return { ...node, branches: node.branches.map(expB) };
+    case "Fold":
+      return { ...node, branches: node.branches.map(expB) };
+    case "Over": {
+      const expanded = expandStep(node.transform, argSubst);
+      if (expanded.length === 1) {
+        return { tag: "Over", field: node.field, transform: expanded[0]! };
+      }
+      // Multi-step expansion: wrap in GroupedExpr so Over.transform stays a single TypedStep.
+      const groupedBody: TypedExpr = { steps: expanded, morphTy: node.transform.morphTy, sourceId: node.transform.sourceId };
+      const groupedStep: TypedStep = { node: { tag: "GroupedExpr", body: groupedBody }, morphTy: node.transform.morphTy, sourceId: node.transform.sourceId };
+      return { tag: "Over", field: node.field, transform: groupedStep };
+    }
+    case "GroupedExpr":
+      return { tag: "GroupedExpr", body: exp(node.body) };
+    case "Let":
+      return { tag: "Let", name: node.name, rhs: exp(node.rhs), body: exp(node.body), liveSet: node.liveSet };
+    case "SchemaInst": {
+      const newArgSubst = new Map<string, TypedExpr>();
+      for (const [k, v] of node.argSubst) newArgSubst.set(k, exp(v));
+      return { ...node, argSubst: newArgSubst };
+    }
+  }
+}
+
+function expandBranch(branch: TypedBranch, argSubst: Map<string, TypedExpr>): TypedBranch {
+  const exp = (e: TypedExpr) => expandParamRefs(e, argSubst);
+  const handler: TypedHandler =
+    branch.handler.tag === "Nullary"
+      ? { tag: "Nullary", body: exp(branch.handler.body) }
+      : { tag: "Record", binders: branch.handler.binders, body: exp(branch.handler.body) };
+  return { ...branch, handler };
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,9 +1292,10 @@ function countUsesInTypedExpr(expr: TypedExpr, names: string[]): Map<string, num
       case "Case":      node.branches.forEach((b) => visitHandler(b.handler)); break;
       case "CaseField": node.branches.forEach((b) => visitHandler(b.handler)); break;
       case "Fold":      node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "Over":      visitStep(node.transform); break;
-      case "Let":       visitExpr(node.rhs); visitExpr(node.body); break;
-      case "SchemaInst": [...node.argSubst.values()].forEach(visitExpr); break;
+      case "Over":         visitStep(node.transform); break;
+      case "GroupedExpr":  visitExpr(node.body); break;
+      case "Let":          visitExpr(node.rhs); visitExpr(node.body); break;
+      case "SchemaInst":   [...node.argSubst.values()].forEach(visitExpr); break;
       default: break;
     }
   };
@@ -1260,34 +1303,6 @@ function countUsesInTypedExpr(expr: TypedExpr, names: string[]): Map<string, num
     if (h.tag === "Nullary") visitExpr(h.body);
     else visitExpr(h.body);
   };
-  visitExpr(expr);
-  return counts;
-}
-
-/** Count how many times each param name appears as a Ref node in a TypedExpr. */
-function countParamRefUses(expr: TypedExpr, paramNames: string[]): Map<string, number> {
-  const counts = new Map<string, number>(paramNames.map((n) => [n, 0]));
-  const visitStep = (s: TypedStep) => {
-    if (s.node.tag === "Ref" && counts.has(s.node.defId)) {
-      counts.set(s.node.defId, (counts.get(s.node.defId) ?? 0) + 1);
-    }
-    visitNode(s.node);
-  };
-  const visitExpr = (e: TypedExpr) => e.steps.forEach(visitStep);
-  const visitNode = (node: TypedNode) => {
-    switch (node.tag) {
-      case "Build":      node.fields.forEach((f) => visitExpr(f.expr)); break;
-      case "Fanout":     node.fields.forEach((f) => visitExpr(f.expr)); break;
-      case "Case":       node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "CaseField":  node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "Fold":       node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "Over":       visitStep(node.transform); break;
-      case "Let":        visitExpr(node.rhs); visitExpr(node.body); break;
-      case "SchemaInst": [...node.argSubst.values()].forEach(visitExpr); break;
-      default: break;
-    }
-  };
-  const visitHandler = (h: TypedHandler) => visitExpr(h.body);
   visitExpr(expr);
   return counts;
 }
@@ -1385,6 +1400,8 @@ function substTypedNode(
       };
     case "Over":
       return { tag: "Over", field: node.field, transform: subS(node.transform) };
+    case "GroupedExpr":
+      return { tag: "GroupedExpr", body: sub(node.body) };
     case "Let":
       return {
         tag: "Let", name: node.name,

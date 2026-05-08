@@ -3,7 +3,7 @@ import { checkModule, type ModuleExports } from "../typechecker/check.ts";
 import { elaborateModule, elaborateAll, resetElabCounters } from "./index.ts";
 import { parseModule } from "../parser/index.ts";
 import { interpret } from "../interpreter/eval.ts";
-import { VUnit, showValue, vInt } from "../interpreter/value.ts";
+import { VUnit, showValue, vInt, vVariant, vRecord, type Value } from "../interpreter/value.ts";
 import { validateGraph } from "../ir/validate.ts";
 import type { Graph, Node } from "../ir/ir.ts";
 import {
@@ -258,6 +258,62 @@ test("elaborateAll: cross-module Ref resolves and interprets correctly", () => {
   // Interpret "B.result": should produce Int 42
   const value = interpret(elabMod, "B.result", VUnit);
   expect(showValue(value)).toBe(showValue(vInt(42)));
+});
+
+// ---------------------------------------------------------------------------
+// Schema instantiation
+// ---------------------------------------------------------------------------
+
+const schemaTestSrc = `
+module Test
+
+type List a = | Nil | Cons { head: a, tail: List a }
+type Maybe a = | None | Some { value: a }
+
+def fromMaybe : Maybe Int -> Int =
+  case { None: 0, Some: { value } >>> value }
+
+def map (f : a -> b) : List a -> List b =
+  fold {
+    Nil:  Nil,
+    Cons: { head, tail } >>>
+      fanout { head: head >>> f, tail: tail } >>> Cons,
+  }
+
+def testMapSingle : List (Maybe Int) -> List Int =
+  map(f: fromMaybe)
+`;
+
+const nil: Value = vVariant("Nil");
+function cons(head: Value, tail: Value): Value {
+  return vVariant("Cons", vRecord({ head, tail }));
+}
+function some(value: Value): Value {
+  return vVariant("Some", vRecord({ value }));
+}
+const none: Value = vVariant("None");
+
+test("schema: map(f: fromMaybe) produces valid IR (no IR-7 violations)", () => {
+  resetElabCounters();
+  const mod     = assertOk(parseModule(schemaTestSrc), "schema:parse");
+  const typed   = assertOk(checkModule(mod), "schema:check");
+  const elabMod = assertOk(elaborateModule(typed), "schema:elab");
+
+  const graph = elabMod.defs.get("testMapSingle");
+  expect(graph).toBeDefined();
+  assertValid(validateGraph(graph!), "testMapSingle IR");
+});
+
+test("schema: map(f: fromMaybe) interprets correctly on [Some(1), None, Some(3)]", () => {
+  resetElabCounters();
+  const mod     = assertOk(parseModule(schemaTestSrc), "schema:parse");
+  const typed   = assertOk(checkModule(mod), "schema:check");
+  const elabMod = assertOk(elaborateModule(typed), "schema:elab");
+
+  const input  = cons(some(vInt(1)), cons(none, cons(some(vInt(3)), nil)));
+  const result = interpret(elabMod, "testMapSingle", input);
+  const expected = cons(vInt(1), cons(vInt(0), cons(vInt(3), nil)));
+  expect(showValue(result)).toBe(showValue(expected));
 });
 
 test("builtin operator does not shadow user def with same bare name", () => {

@@ -168,6 +168,14 @@ export type TypedNode =
   | { tag: "Perform";    op: string }
 
   /**
+   * Inline argument wrapper: a multi-step pipeline substituted into a single-step
+   * position (e.g. Over.transform) during schema param expansion.
+   * Created only by expandParamRefs; never produced by the typechecker from surface input.
+   * Elaborates by calling elabExpr on the inner body — no new IR node is introduced.
+   */
+  | { tag: "GroupedExpr"; body: TypedExpr }
+
+  /**
    * Schema instantiation (higher-order def application).
    * The elaborator applies tySubst/effSubst to the def body's types,
    * binds argSubst names, and elaborates the body. No new IR node is produced.
