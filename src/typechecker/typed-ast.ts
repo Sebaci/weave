@@ -59,6 +59,10 @@ export type TypedDef = {
   // The elaborator inlines this body with tySubst/effSubst/argSubst applied.
   surfaceBody: Expr;
   sourceId: SourceNodeId;
+  /** Effect of the body with all schema-param Ref nodes treated as pure.
+   *  `"pure"` for non-schema defs (no params). Used by checkSchemaInst to
+   *  compute the precise instantiated effect rather than reusing the declaration. */
+  intrinsicEff: ConcreteEffect;
 };
 
 export type TypedDefParam = {

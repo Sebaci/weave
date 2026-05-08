@@ -1,5 +1,6 @@
 import { test, expect } from "vitest";
 import { checkModule, type ModuleExports } from "./check.ts";
+import { parseModule } from "../parser/index.ts";
 import {
   pipeline, stepFold, stepFanout, stepInfix, stepName, stepCtor, stepCase,
   branch, nullaryHandler, recordHandler, bindBinder, wildcardBinder,
@@ -178,11 +179,12 @@ test("qualified name: Foo.bar resolves when seeded as qualified def", () => {
   const seeds: ModuleExports = {
     defs: new Map([
       ["Foo.bar", {
-        name:     "Foo.bar",
-        params:   [],
-        morphTy:  { input: { tag: "Unit" }, output: { tag: "Int" }, eff: "pure" },
-        body:     pipeline(stepName("Foo.bar")),
-        sourceId: "seed_1",
+        name:         "Foo.bar",
+        params:       [],
+        morphTy:      { input: { tag: "Unit" }, output: { tag: "Int" }, eff: "pure" },
+        body:         pipeline(stepName("Foo.bar")),
+        sourceId:     "seed_1",
+        intrinsicEff: "pure" as const,
       }],
     ]),
     ctors:     new Map(),
@@ -198,4 +200,58 @@ test("qualified name: Foo.bar resolves when seeded as qualified def", () => {
   const def = r.typedDefs.get("result");
   expect(def).toBeDefined();
   expect(def?.morphTy.output).toMatchObject({ tag: "Int" });
+});
+
+// ---------------------------------------------------------------------------
+// Schema instantiation — effect precision
+// ---------------------------------------------------------------------------
+
+test("schema: declaration effect is upper bound, not instantiated effect", () => {
+  // applySeq is declared `! sequential` but ALL sequential effect comes from the
+  // param `f`. With a pure argument, the instantiated effect must be `pure`.
+  // Before the fix, checkSchemaInst inherited the declaration's `sequential`,
+  // causing `testPure` (declared `! pure`) to be falsely rejected.
+  //
+  // Unit -> Int is used so that a literal constant is the natural pure argument.
+  // (Weave has no syntax for arithmetic on an anonymous non-record input, so
+  // an Int -> Int function that adds one cannot be written without a record type.)
+  const src = [
+    "def applySeq (f: Unit -> Int ! sequential) : Unit -> Int ! sequential = f",
+    "def five : Unit -> Int = 5",
+    // Instantiate with a pure arg inside a def declared pure — must be accepted.
+    "def testPure : Unit -> Int = applySeq(f: five)",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  const r   = assertOk(checkModule(mod), "check");
+  const def = r.typedDefs.get("testPure");
+  expect(def).toBeDefined();
+  // The instantiated effect is pure (not sequential), so the declared pure is met.
+  expect(def!.morphTy.eff).toBe("pure");
+});
+
+test("schema: instantiated effect respects arg effect", () => {
+  // With a sequential arg, the instantiated effect must be sequential.
+  const src = [
+    "effect io : Int -> Int ! sequential",
+    "def applySeq (f: Int -> Int ! sequential) : Int -> Int ! sequential = f",
+    "def testSeq : Int -> Int ! sequential = applySeq(f: perform io)",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  const r   = assertOk(checkModule(mod), "check");
+  const def = r.typedDefs.get("testSeq");
+  expect(def).toBeDefined();
+  expect(def!.morphTy.eff).toBe("sequential");
+});
+
+test("schema: instantiated effect cannot exceed declaration", () => {
+  // The schema is declared `! pure`, but the arg is `! sequential`.
+  // This must be rejected: the instantiated effect sequential > declared pure.
+  const src = [
+    "effect io : Int -> Int ! sequential",
+    "def applyPure (f: Int -> Int ! pure) : Int -> Int ! pure = f",
+    "def bad : Int -> Int ! sequential = applyPure(f: perform io)",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  // checkModule should fail because perform io has sequential effect but param requires pure
+  expect(checkModule(mod).ok).toBe(false);
 });

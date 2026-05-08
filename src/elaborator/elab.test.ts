@@ -229,8 +229,8 @@ test("elaborateAll: cross-module Ref resolves and interprets correctly", () => {
   const defInfo = typedA.typedDefs.get("origin")!;
   const seeds: ModuleExports = {
     defs: new Map([
-      ["origin",   { name: "A.origin", params: [], morphTy: defInfo.morphTy, body: defInfo.surfaceBody, sourceId: defInfo.sourceId }],
-      ["A.origin", { name: "A.origin", params: [], morphTy: defInfo.morphTy, body: defInfo.surfaceBody, sourceId: defInfo.sourceId }],
+      ["origin",   { name: "A.origin", params: [], morphTy: defInfo.morphTy, body: defInfo.surfaceBody, sourceId: defInfo.sourceId, intrinsicEff: "pure" as const }],
+      ["A.origin", { name: "A.origin", params: [], morphTy: defInfo.morphTy, body: defInfo.surfaceBody, sourceId: defInfo.sourceId, intrinsicEff: "pure" as const }],
     ]),
     ctors:     new Map(),
     typeDecls: new Map(),

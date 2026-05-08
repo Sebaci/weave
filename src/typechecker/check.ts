@@ -75,11 +75,26 @@ export function checkModule(mod: Module, seeds?: ModuleExports): TypeResult<Type
   if (!pass1.ok) return pass1;
   const { env, typedTypeDecls, omega } = pass1.value;
 
-  // Pass 2: check def bodies
+  // Pass 2: check def bodies.
+  // After each schema def is checked, update its DefInfo in the env with the
+  // computed intrinsicEff so that later defs can instantiate it with the precise
+  // effect. (env.globals.defs is a mutable Map shared by all checks in this pass.)
+  const defPrefix = mod.path.join(".");
   const defResults: TypeResult<TypedDef>[] = [];
   for (const topDecl of mod.decls) {
     if (topDecl.tag !== "DefDecl") continue;
-    defResults.push(checkDef(topDecl.decl, env));
+    const r = checkDef(topDecl.decl, env);
+    if (r.ok && r.value.params.length > 0) {
+      // Propagate intrinsicEff into the env so subsequent schema instantiations
+      // within this module see the correct value (not the "pure" placeholder).
+      const bareName = topDecl.decl.name;
+      const qualName = defPrefix ? `${defPrefix}.${bareName}` : bareName;
+      for (const key of [bareName, qualName]) {
+        const existing = env.globals.defs.get(key);
+        if (existing) env.globals.defs.set(key, { ...existing, intrinsicEff: r.value.intrinsicEff });
+      }
+    }
+    defResults.push(r);
   }
   const defsResult = collectResults(defResults);
   if (!defsResult.ok) return defsResult;
@@ -326,11 +341,12 @@ function buildDefSignature(decl: DefDecl, typeDecls: TypeDeclEnv): TypeResult<De
   }
 
   return ok({
-    name: decl.name,
-    params: paramsR.value,
+    name:        decl.name,
+    params:      paramsR.value,
     morphTy,
-    body: decl.body,
-    sourceId: decl.meta.id,
+    body:        decl.body,
+    sourceId:    decl.meta.id,
+    intrinsicEff: "pure",  // placeholder; updated after pass-2 checks schema defs
   });
 }
 
@@ -489,6 +505,7 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
 
   // Unannotated def: morphTy is fully inferred from the body; no declared type to check.
   if (decl.ty === null) {
+    const paramNameSet0 = new Set(params.map((p) => p.name));
     return ok({
       name:        decl.name,
       params:      params.map((p) => ({ name: p.name, morphTy: p.morphTy })),
@@ -496,6 +513,7 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
       body:        typedBody,
       surfaceBody: decl.body,
       sourceId:    decl.meta.id,
+      intrinsicEff: computeBodyIntrinsicEffect(typedBody, paramNameSet0),
     });
   }
 
@@ -528,6 +546,12 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
   // type variable names to concrete types.
   const finalBody = substTypedExpr(typedBody, unifyR.subst, unifyR.effSubst);
 
+  // Compute the intrinsic body effect: the effect of the body with all schema-param
+  // Ref nodes treated as pure. Used by checkSchemaInst to derive the precise
+  // instantiated effect rather than inheriting the declaration's upper bound.
+  const paramNameSet = new Set(params.map((p) => p.name));
+  const intrinsicEff = computeBodyIntrinsicEffect(finalBody, paramNameSet);
+
   return ok({
     name:        decl.name,
     params:      params.map((p) => ({ name: p.name, morphTy: p.morphTy })),
@@ -535,6 +559,7 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
     body:        finalBody,
     surfaceBody: decl.body,
     sourceId:    decl.meta.id,
+    intrinsicEff,
   });
 }
 
@@ -544,12 +569,13 @@ function bindParamsAsGlobals(env: CheckEnv, params: DefParamInfo[], sourceId: So
   const newDefs = new Map(env.globals.defs);
   for (const p of params) {
     newDefs.set(p.name, {
-      name: p.name,
-      params: [],
-      morphTy: p.morphTy,
+      name:     p.name,
+      params:   [],
+      morphTy:  p.morphTy,
       // Dummy body — params are not elaborated as schema instantiations
       body: { tag: "Pipeline", steps: [{ tag: "Name", name: p.name, meta: { id: sourceId, span: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } } } }], meta: { id: sourceId, span: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } } } },
       sourceId,
+      intrinsicEff: "pure",  // params can't be schema-instantiated, field unused
     });
   }
   return { ...env, globals: { ...env.globals, defs: newDefs } };
@@ -1533,7 +1559,8 @@ function checkSchemaInst(
   // Apply substitution to the def's morphism type
   const resolvedInput  = applySubst(freshMorphTy.input,  subst, effSubst);
   const resolvedOutput = applySubst(freshMorphTy.output, subst, effSubst);
-  const resolvedEff    = resolveEffFinal(applyEffSubst(freshMorphTy.eff, effSubst));
+  // The declared effect is the public upper-bound contract, not the instantiated effect.
+  const declaredEff = resolveEffFinal(applyEffSubst(freshMorphTy.eff, effSubst));
 
   // Unify the resolved input with the current inputTy
   const uIn = unify(resolvedInput, inputTy, subst, effSubst);
@@ -1544,6 +1571,23 @@ function checkSchemaInst(
   const finalEffSubst = uIn.effSubst;
   const finalOutput = applySubst(resolvedOutput, finalSubst, finalEffSubst);
 
+  // Compute the precise instantiated effect (spec §2.2: re-derive after substitution).
+  //   instantiatedEff = intrinsicBodyEff ⊔ join(argEffects)
+  // where intrinsicBodyEff is the def body's effect with param refs treated as pure.
+  // Then verify it does not exceed the declaration's promised upper bound.
+  const argEff = [...argSubst.values()].reduce<ConcreteEffect>(
+    (acc, typedArg) => effectJoin(acc, typedArg.morphTy.eff),
+    "pure",
+  );
+  const instantiatedEff = effectJoin(defInfo.intrinsicEff, argEff);
+  if (effectRank(instantiatedEff) > effectRank(declaredEff)) {
+    return typeError(
+      `Schema instantiation of '${defName}': instantiated effect '${instantiatedEff}' exceeds declared effect '${declaredEff}'`,
+      sourceId,
+      "E_EFFECT_MISMATCH",
+    );
+  }
+
   // Build concrete tySubst and effSubst for the elaborator
   const tySubstForElab = new Map<string, Type>();
   for (const [k, v] of finalSubst) {
@@ -1553,7 +1597,7 @@ function checkSchemaInst(
 
   return ok(makeStep(
     { tag: "SchemaInst", defName: defInfo.name, tySubst: tySubstForElab, effSubst: effSubstForElab, argSubst },
-    { input: inputTy, output: finalOutput, eff: resolvedEff },
+    { input: inputTy, output: finalOutput, eff: instantiatedEff },
     sourceId,
   ));
 }
@@ -1778,6 +1822,76 @@ function effectRank(eff: ConcreteEffect): number {
 function resolveEffFinal(eff: EffectLevel): ConcreteEffect {
   if (typeof eff === "string") return eff;
   return "pure"; // Unresolved EffVar defaults to pure (conservative for checking)
+}
+
+// ---------------------------------------------------------------------------
+// Intrinsic effect computation
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the "intrinsic" body effect: the effect of a typed expression with
+ * all Ref nodes to schema parameter names treated as pure. This isolates the
+ * effect contribution of the def body itself from the effect of supplied args.
+ *
+ * Used by checkSchemaInst to derive the precise instantiated effect:
+ *   instantiatedEff = effectJoin(intrinsicEff, join of arg effects)
+ */
+function computeBodyIntrinsicEffect(body: TypedExpr, paramNames: Set<string>): ConcreteEffect {
+  return body.steps.reduce(
+    (acc, step) => effectJoin(acc, intrinsicStepEff(step, paramNames)),
+    "pure" as ConcreteEffect,
+  );
+}
+
+function intrinsicStepEff(step: TypedStep, paramNames: Set<string>): ConcreteEffect {
+  const node = step.node;
+  switch (node.tag) {
+    case "Ref":
+      // Schema-param refs are treated as pure; ordinary global refs keep their effect.
+      return paramNames.has(node.defId) ? "pure" : step.morphTy.eff;
+    case "LocalRef":
+    case "Ctor":
+    case "Projection":
+    case "Literal":
+      return "pure";
+    case "Perform":
+      return step.morphTy.eff;
+    case "Fanout":
+      return node.fields.reduce(
+        (acc, f) => effectJoin(acc, computeBodyIntrinsicEffect(f.expr, paramNames)),
+        "pure" as ConcreteEffect,
+      );
+    case "Build":
+      return node.fields.reduce(
+        (acc, f) => effectJoin(acc, computeBodyIntrinsicEffect(f.expr, paramNames)),
+        "pure" as ConcreteEffect,
+      );
+    case "Case":
+    case "CaseField":
+      return node.branches.reduce(
+        (acc, b) => effectJoin(acc, computeBodyIntrinsicEffect(b.handler.body, paramNames)),
+        "pure" as ConcreteEffect,
+      );
+    case "Fold":
+      return node.branches.reduce(
+        (acc, b) => effectJoin(acc, computeBodyIntrinsicEffect(b.handler.body, paramNames)),
+        "pure" as ConcreteEffect,
+      );
+    case "Over":
+      return intrinsicStepEff(node.transform, paramNames);
+    case "Let":
+      return effectJoin(
+        computeBodyIntrinsicEffect(node.rhs,  paramNames),
+        computeBodyIntrinsicEffect(node.body, paramNames),
+      );
+    case "GroupedExpr":
+      return computeBodyIntrinsicEffect(node.body, paramNames);
+    case "SchemaInst":
+      // For nested schema instantiation, use the already-computed step effect.
+      // This is an over-approximation if an outer param is threaded through an
+      // inner schema arg, but is correct for the common case.
+      return step.morphTy.eff;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -69,11 +69,12 @@ function extractExports(modPath: string[], typedMod: TypedModule): ModuleExports
   for (const [name, def] of typedMod.typedDefs) {
     const qualName = prefix ? `${prefix}.${name}` : name;
     const info: DefInfo = {
-      name:     qualName,
-      params:   def.params,
-      morphTy:  def.morphTy,
-      body:     def.surfaceBody,
-      sourceId: def.sourceId,
+      name:         qualName,
+      params:       def.params,
+      morphTy:      def.morphTy,
+      body:         def.surfaceBody,
+      sourceId:     def.sourceId,
+      intrinsicEff: def.intrinsicEff,
     };
     // Bare name — for unqualified references in importing modules
     defs.set(name, info);

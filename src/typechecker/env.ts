@@ -19,11 +19,14 @@ export type { Omega };
 // ---------------------------------------------------------------------------
 
 export type DefInfo = {
-  name:     string;
-  params:   DefParamInfo[];
-  morphTy:  MorphTy;          // may contain TyVars for polymorphic defs
-  body:     Expr;             // surface body, needed by elaborator for schema instantiation
-  sourceId: SourceNodeId;
+  name:        string;
+  params:      DefParamInfo[];
+  morphTy:     MorphTy;           // may contain TyVars for polymorphic defs
+  body:        Expr;              // surface body, needed by elaborator for schema instantiation
+  sourceId:    SourceNodeId;
+  /** Effect of the body with all schema-param Ref nodes treated as pure.
+   *  `"pure"` for non-schema defs (no params). Set after pass-2 type-checking. */
+  intrinsicEff: ConcreteEffect;
 };
 
 export type DefParamInfo = {
