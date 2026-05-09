@@ -255,3 +255,40 @@ test("schema: instantiated effect cannot exceed declaration", () => {
   // checkModule should fail because perform io has sequential effect but param requires pure
   expect(checkModule(mod).ok).toBe(false);
 });
+
+test("schema: forward reference to schema sees correct intrinsicEff, not pure placeholder", () => {
+  // 'use' instantiates 'applyIO' which is defined LATER in source order.
+  // Without the two-sweep fix, 'use' would be checked before 'applyIO' is
+  // processed, see applyIO.intrinsicEff = "pure" (placeholder), and wrongly
+  // accept the instantiation as pure — masking an intrinsic sequential effect.
+  const src = [
+    "effect io : Unit -> Int ! sequential",
+    "def use : Unit -> Int ! pure = applyIO(f: five)",  // forward ref to applyIO
+    "def five : Unit -> Int = 5",
+    "def applyIO (f: Unit -> Int ! sequential) : Unit -> Int ! sequential = perform io >>> f",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  // applyIO has intrinsic sequential effect from `perform io`; even with a pure
+  // arg, the instantiated effect is sequential — must be rejected as pure.
+  expect(checkModule(mod).ok).toBe(false);
+});
+
+test("schema: nested schema instantiation does not over-approximate intrinsic effect", () => {
+  // outer(f) = inner(g: f): outer threads its own param into inner as an arg.
+  // inner's intrinsicEff is "pure" (body is just g); outer's must also be "pure".
+  // The old SchemaInst case returned step.morphTy.eff, which was "sequential"
+  // because f had a sequential declared bound — causing outer(f: pure_arg) to be
+  // wrongly rejected or inferred as sequential.
+  const src = [
+    "def inner (g: Unit -> Int ! sequential) : Unit -> Int ! sequential = g",
+    "def outer (f: Unit -> Int ! sequential) : Unit -> Int ! sequential = inner(g: f)",
+    "def five : Unit -> Int = 5",
+    "def use : Unit -> Int = outer(f: five)",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  const r   = assertOk(checkModule(mod), "check");
+  const def = r.typedDefs.get("use");
+  expect(def).toBeDefined();
+  // With a pure arg, the instantiated effect must be pure, not sequential.
+  expect(def!.morphTy.eff).toBe("pure");
+});

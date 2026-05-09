@@ -76,25 +76,36 @@ export function checkModule(mod: Module, seeds?: ModuleExports): TypeResult<Type
   const { env, typedTypeDecls, omega } = pass1.value;
 
   // Pass 2: check def bodies.
-  // After each schema def is checked, update its DefInfo in the env with the
-  // computed intrinsicEff so that later defs can instantiate it with the precise
-  // effect. (env.globals.defs is a mutable Map shared by all checks in this pass.)
+  // Two sweeps: schema defs (higher-order defs with params) first, then
+  // non-schema defs. This ensures every schema's intrinsicEff is populated
+  // before any instantiation (including forward references within the module)
+  // runs checkSchemaInst. Without this ordering, a non-schema def that
+  // instantiates a later-defined schema would observe the "pure" placeholder.
   const defPrefix = mod.path.join(".");
   const defResults: TypeResult<TypedDef>[] = [];
-  for (const topDecl of mod.decls) {
-    if (topDecl.tag !== "DefDecl") continue;
-    const r = checkDef(topDecl.decl, env);
-    if (r.ok && r.value.params.length > 0) {
-      // Propagate intrinsicEff into the env so subsequent schema instantiations
-      // within this module see the correct value (not the "pure" placeholder).
-      const bareName = topDecl.decl.name;
-      const qualName = defPrefix ? `${defPrefix}.${bareName}` : bareName;
-      for (const key of [bareName, qualName]) {
-        const existing = env.globals.defs.get(key);
-        if (existing) env.globals.defs.set(key, { ...existing, intrinsicEff: r.value.intrinsicEff });
-      }
+
+  const propagateIntrinsicEff = (decl: DefDecl, r: TypeResult<TypedDef>): void => {
+    if (!r.ok) return;
+    const bareName = decl.name;
+    const qualName = defPrefix ? `${defPrefix}.${bareName}` : bareName;
+    for (const key of [bareName, qualName]) {
+      const existing = env.globals.defs.get(key);
+      if (existing) env.globals.defs.set(key, { ...existing, intrinsicEff: r.value.intrinsicEff });
     }
+  };
+
+  // Sweep 1: schema defs — populate intrinsicEff before any instantiation runs.
+  for (const topDecl of mod.decls) {
+    if (topDecl.tag !== "DefDecl" || topDecl.decl.params.length === 0) continue;
+    const r = checkDef(topDecl.decl, env);
+    propagateIntrinsicEff(topDecl.decl, r);
     defResults.push(r);
+  }
+
+  // Sweep 2: non-schema defs — all schema intrinsicEff values are now set.
+  for (const topDecl of mod.decls) {
+    if (topDecl.tag !== "DefDecl" || topDecl.decl.params.length > 0) continue;
+    defResults.push(checkDef(topDecl.decl, env));
   }
   const defsResult = collectResults(defResults);
   if (!defsResult.ok) return defsResult;
@@ -513,7 +524,7 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
       body:        typedBody,
       surfaceBody: decl.body,
       sourceId:    decl.meta.id,
-      intrinsicEff: computeBodyIntrinsicEffect(typedBody, paramNameSet0),
+      intrinsicEff: computeBodyIntrinsicEffect(typedBody, paramNameSet0, env.globals.defs),
     });
   }
 
@@ -550,7 +561,7 @@ export function checkDef(decl: DefDecl, env: CheckEnv): TypeResult<TypedDef> {
   // Ref nodes treated as pure. Used by checkSchemaInst to derive the precise
   // instantiated effect rather than inheriting the declaration's upper bound.
   const paramNameSet = new Set(params.map((p) => p.name));
-  const intrinsicEff = computeBodyIntrinsicEffect(finalBody, paramNameSet);
+  const intrinsicEff = computeBodyIntrinsicEffect(finalBody, paramNameSet, env.globals.defs);
 
   return ok({
     name:        decl.name,
@@ -1836,14 +1847,14 @@ function resolveEffFinal(eff: EffectLevel): ConcreteEffect {
  * Used by checkSchemaInst to derive the precise instantiated effect:
  *   instantiatedEff = effectJoin(intrinsicEff, join of arg effects)
  */
-function computeBodyIntrinsicEffect(body: TypedExpr, paramNames: Set<string>): ConcreteEffect {
+function computeBodyIntrinsicEffect(body: TypedExpr, paramNames: Set<string>, defs: Map<string, DefInfo>): ConcreteEffect {
   return body.steps.reduce(
-    (acc, step) => effectJoin(acc, intrinsicStepEff(step, paramNames)),
+    (acc, step) => effectJoin(acc, intrinsicStepEff(step, paramNames, defs)),
     "pure" as ConcreteEffect,
   );
 }
 
-function intrinsicStepEff(step: TypedStep, paramNames: Set<string>): ConcreteEffect {
+function intrinsicStepEff(step: TypedStep, paramNames: Set<string>, defs: Map<string, DefInfo>): ConcreteEffect {
   const node = step.node;
   switch (node.tag) {
     case "Ref":
@@ -1858,39 +1869,47 @@ function intrinsicStepEff(step: TypedStep, paramNames: Set<string>): ConcreteEff
       return step.morphTy.eff;
     case "Fanout":
       return node.fields.reduce(
-        (acc, f) => effectJoin(acc, computeBodyIntrinsicEffect(f.expr, paramNames)),
+        (acc, f) => effectJoin(acc, computeBodyIntrinsicEffect(f.expr, paramNames, defs)),
         "pure" as ConcreteEffect,
       );
     case "Build":
       return node.fields.reduce(
-        (acc, f) => effectJoin(acc, computeBodyIntrinsicEffect(f.expr, paramNames)),
+        (acc, f) => effectJoin(acc, computeBodyIntrinsicEffect(f.expr, paramNames, defs)),
         "pure" as ConcreteEffect,
       );
     case "Case":
     case "CaseField":
       return node.branches.reduce(
-        (acc, b) => effectJoin(acc, computeBodyIntrinsicEffect(b.handler.body, paramNames)),
+        (acc, b) => effectJoin(acc, computeBodyIntrinsicEffect(b.handler.body, paramNames, defs)),
         "pure" as ConcreteEffect,
       );
     case "Fold":
       return node.branches.reduce(
-        (acc, b) => effectJoin(acc, computeBodyIntrinsicEffect(b.handler.body, paramNames)),
+        (acc, b) => effectJoin(acc, computeBodyIntrinsicEffect(b.handler.body, paramNames, defs)),
         "pure" as ConcreteEffect,
       );
     case "Over":
-      return intrinsicStepEff(node.transform, paramNames);
+      return intrinsicStepEff(node.transform, paramNames, defs);
     case "Let":
       return effectJoin(
-        computeBodyIntrinsicEffect(node.rhs,  paramNames),
-        computeBodyIntrinsicEffect(node.body, paramNames),
+        computeBodyIntrinsicEffect(node.rhs,  paramNames, defs),
+        computeBodyIntrinsicEffect(node.body, paramNames, defs),
       );
     case "GroupedExpr":
-      return computeBodyIntrinsicEffect(node.body, paramNames);
-    case "SchemaInst":
-      // For nested schema instantiation, use the already-computed step effect.
-      // This is an over-approximation if an outer param is threaded through an
-      // inner schema arg, but is correct for the common case.
-      return step.morphTy.eff;
+      return computeBodyIntrinsicEffect(node.body, paramNames, defs);
+    case "SchemaInst": {
+      // Re-derive the nested instantiation's intrinsic effect structurally:
+      //   join(nestedDef.intrinsicEff, intrinsic effects of all arg expressions)
+      // Using step.morphTy.eff would over-approximate when an outer param is
+      // threaded through as an arg — it would count the param's declared bound
+      // instead of treating it as pure.
+      const nestedDef = defs.get(node.defName);
+      const nestedIntrinsic: ConcreteEffect = nestedDef ? nestedDef.intrinsicEff : step.morphTy.eff;
+      return [...node.argSubst.values()].reduce<ConcreteEffect>(
+        (acc, arg) => effectJoin(acc, computeBodyIntrinsicEffect(arg, paramNames, defs)),
+        nestedIntrinsic,
+      );
+    }
   }
 }
 
