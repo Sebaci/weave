@@ -53,6 +53,87 @@ import { lookupInfixOp, resolveBuiltinType, BUILTIN_OPS } from "./builtins.ts";
 import { ok, fail, typeError, collectResults, mapResult, type TypeResult, type TypeError } from "./errors.ts";
 
 // ---------------------------------------------------------------------------
+// Schema instantiation dependency analysis (for topological ordering)
+// ---------------------------------------------------------------------------
+
+/** Walk a surface expression and collect the names of local schemas that it
+ *  directly instantiates. Only names present in moduleSchemaNames are returned. */
+function collectSchemaDeps(expr: Expr, moduleSchemaNames: Set<string>): Set<string> {
+  const result = new Set<string>();
+  visitExpr(expr);
+  return result;
+
+  function visitExpr(e: Expr): void { for (const s of e.steps) visitStep(s); }
+
+  function visitStep(s: Step): void {
+    switch (s.tag) {
+      case "SchemaInst":
+        if (moduleSchemaNames.has(s.name)) result.add(s.name);
+        for (const arg of s.args) visitExpr(arg.expr);
+        break;
+      case "Fanout":
+        for (const f of s.fields) { if (f.tag === "Field") visitExpr(f.expr); }
+        break;
+      case "Build":
+        for (const f of s.fields) visitExpr(f.expr);
+        break;
+      case "Case":
+      case "Fold":
+        for (const b of s.branches) visitExpr(b.handler.body);
+        break;
+      case "Over":  visitStep(s.transform); break;
+      case "Let":   visitExpr(s.rhs); visitExpr(s.body); break;
+      case "Infix": visitStep(s.left); visitStep(s.right); break;
+      // Name, Ctor, Projection, Literal, Perform — no sub-expressions
+    }
+  }
+}
+
+/** Topologically sort schema defs so that if A instantiates B, B appears before A.
+ *  Uses Kahn's algorithm. Any schemas in a cycle (invalid programs) are appended
+ *  in source order; the typechecker will catch the underlying error. */
+function topoSortSchemaDefs(schemaDefs: DefDecl[], moduleSchemaNames: Set<string>): DefDecl[] {
+  if (schemaDefs.length <= 1) return schemaDefs;
+
+  const byName    = new Map<string, DefDecl>(schemaDefs.map(d => [d.name, d]));
+  const dependents = new Map<string, string[]>(schemaDefs.map(d => [d.name, []]));
+  const inDegree   = new Map<string, number>(schemaDefs.map(d => [d.name, 0]));
+
+  for (const d of schemaDefs) {
+    const deps = collectSchemaDeps(d.body, moduleSchemaNames);
+    deps.delete(d.name); // self-references don't affect ordering
+    for (const dep of deps) {
+      if (byName.has(dep)) {
+        dependents.get(dep)!.push(d.name);
+        inDegree.set(d.name, inDegree.get(d.name)! + 1);
+      }
+    }
+  }
+
+  const queue: string[] = [];
+  for (const [name, deg] of inDegree) { if (deg === 0) queue.push(name); }
+
+  const sorted: DefDecl[] = [];
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    sorted.push(byName.get(name)!);
+    for (const dep of dependents.get(name)!) {
+      const newDeg = inDegree.get(dep)! - 1;
+      inDegree.set(dep, newDeg);
+      if (newDeg === 0) queue.push(dep);
+    }
+  }
+
+  // Append any remaining nodes (cycle — append in source order)
+  if (sorted.length < schemaDefs.length) {
+    const seen = new Set(sorted.map(d => d.name));
+    for (const d of schemaDefs) { if (!seen.has(d.name)) sorted.push(d); }
+  }
+
+  return sorted;
+}
+
+// ---------------------------------------------------------------------------
 // Module entry point
 // ---------------------------------------------------------------------------
 
@@ -94,11 +175,17 @@ export function checkModule(mod: Module, seeds?: ModuleExports): TypeResult<Type
     }
   };
 
-  // Sweep 1: schema defs — populate intrinsicEff before any instantiation runs.
-  for (const topDecl of mod.decls) {
-    if (topDecl.tag !== "DefDecl" || topDecl.decl.params.length === 0) continue;
-    const r = checkDef(topDecl.decl, env);
-    propagateIntrinsicEff(topDecl.decl, r);
+  // Sweep 1: schema defs in topological order (dependencies before dependents).
+  // This ensures every schema's intrinsicEff is fully populated before any schema
+  // that instantiates it is checked — including schema-to-schema forward refs.
+  const allSchemaDefs = mod.decls
+    .filter((d): d is { tag: "DefDecl"; decl: DefDecl } =>
+      d.tag === "DefDecl" && d.decl.params.length > 0)
+    .map(d => d.decl);
+  const moduleSchemaNames = new Set(allSchemaDefs.map(d => d.name));
+  for (const decl of topoSortSchemaDefs(allSchemaDefs, moduleSchemaNames)) {
+    const r = checkDef(decl, env);
+    propagateIntrinsicEff(decl, r);
     defResults.push(r);
   }
 

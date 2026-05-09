@@ -273,6 +273,24 @@ test("schema: forward reference to schema sees correct intrinsicEff, not pure pl
   expect(checkModule(mod).ok).toBe(false);
 });
 
+test("schema: schema-to-schema forward reference sees correct intrinsicEff", () => {
+  // 'outer' instantiates 'inner' which is defined LATER in source order.
+  // Without topological ordering in sweep 1, outer is checked before inner,
+  // sees inner.intrinsicEff = "pure" (placeholder), records outer.intrinsicEff
+  // = "pure", and wrongly accepts use : Unit -> Int ! pure = outer(f: five).
+  const src = [
+    "effect io : Unit -> Int ! sequential",
+    "def outer (f: Unit -> Int ! sequential) : Unit -> Int ! sequential = inner(g: f)",
+    "def use : Unit -> Int ! pure = outer(f: five)",  // must be rejected
+    "def five : Unit -> Int = 5",
+    "def inner (g: Unit -> Int ! sequential) : Unit -> Int ! sequential = perform io >>> g",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  // inner has intrinsic sequential effect (from perform io); outer inherits it.
+  // Instantiating outer with a pure arg still yields sequential — must be rejected.
+  expect(checkModule(mod).ok).toBe(false);
+});
+
 test("schema: nested schema instantiation does not over-approximate intrinsic effect", () => {
   // outer(f) = inner(g: f): outer threads its own param into inner as an arg.
   // inner's intrinsicEff is "pure" (body is just g); outer's must also be "pure".
