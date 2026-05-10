@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.10.4] - 2026-05-10
 
 ### Added
+- `E_BRANCH_TYPE_MISMATCH` error code: branch output conflicts in `case`, `fold`, and `case .field` now report this distinct code instead of the generic `E_TYPE_MISMATCH`, making it easier for tooling and error messages to distinguish a branch unification failure from an arbitrary type error.
 - Golden IR snapshot tests (`test/golden/`) covering `fold`+`let`, `case .field`, `fanout`, and `build` constructs. Snapshots lock down graph shape, port types, node kinds, wiring, and provenance (including recursively through nested branch and algebra graphs). Exact def-key assertions guard against unexpected elaborated definitions leaking into the module.
+
+### Changed
+- Schema argument mismatch messages now include expected and actual types (`expected Foo, got Bar`) for input type, output type, and effect mismatches, replacing the previous generic mismatch messages.
 
 ---
 

@@ -231,7 +231,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.10.3** — interactive REPL with inline expression evaluation.
+Current stage: **v0.10.4** — interactive REPL with inline expression evaluation.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
