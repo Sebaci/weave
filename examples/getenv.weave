@@ -1,0 +1,11 @@
+module Examples.GetEnv
+
+effect getEnv : Text -> Text ! parallel-safe
+
+-- Read the HOME environment variable.
+def home : Unit -> Text ! parallel-safe =
+  "HOME" >>> perform getEnv
+
+-- Read the USER environment variable.
+def user : Unit -> Text ! parallel-safe =
+  "USER" >>> perform getEnv

@@ -1,0 +1,13 @@
+module Examples.FileIO
+
+effect readFile  : Text -> Text ! sequential
+effect writeFile : { path: Text, content: Text } -> Unit ! sequential
+effect print     : Text -> Unit ! sequential
+
+-- Read a file and print its contents to stdout.
+def echoFile : Text -> Unit ! sequential =
+  perform readFile >>> perform print
+
+-- Write text content to a file.
+def saveContent : { path: Text, content: Text } -> Unit ! sequential =
+  perform writeFile

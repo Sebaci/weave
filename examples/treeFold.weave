@@ -1,0 +1,19 @@
+module Examples.TreeFold
+
+type BTree a =
+  | Leaf
+  | Node { left: BTree a, value: a, right: BTree a }
+
+-- Count all nodes in a binary tree.
+def size : BTree Int -> Int =
+  fold {
+    Leaf: 0,
+    Node: { left, value: _, right } >>> left + 1 + right,
+  }
+
+-- Sum all values stored in the tree.
+def treeSum : BTree Int -> Int =
+  fold {
+    Leaf: 0,
+    Node: { left, value, right } >>> left + value + right,
+  }
