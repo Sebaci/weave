@@ -13,8 +13,8 @@ import { describe, test, expect } from "vitest";
 import { parseModule } from "../../src/parser/index.ts";
 import { checkModule } from "../../src/typechecker/check.ts";
 import { elaborateModule, resetElabCounters } from "../../src/elaborator/index.ts";
-import { normalizeGraph, normalizeModule } from "./normalize.ts";
-import type { ElaboratedModule } from "../../src/ir/ir.ts";
+import { normalizeGraph } from "./normalize.ts";
+import type { ElaboratedModule, Graph } from "../../src/ir/ir.ts";
 
 // ---------------------------------------------------------------------------
 // Pipeline helper
@@ -31,10 +31,40 @@ function elab(src: string): ElaboratedModule {
   return er.value;
 }
 
-function def(m: ElaboratedModule, name: string) {
+function def(m: ElaboratedModule, name: string): Graph {
   const g = m.defs.get(name);
-  if (!g) throw new Error(`def '${name}' not found in module; available: ${[...m.defs.keys()].join(", ")}`);
+  if (!g) throw new Error(`def '${name}' not found; available: ${[...m.defs.keys()].join(", ")}`);
   return g;
+}
+
+// ---------------------------------------------------------------------------
+// Recursive provenance helpers
+// ---------------------------------------------------------------------------
+
+/** Collect every graph reachable from g, including nested branch/algebra graphs. */
+function collectAllGraphs(g: Graph): Graph[] {
+  const result: Graph[] = [g];
+  for (const node of g.nodes) {
+    if (node.kind === "case") {
+      for (const b of node.branches) result.push(...collectAllGraphs(b.graph));
+    } else if (node.kind === "cata") {
+      for (const b of node.algebra) result.push(...collectAllGraphs(b.graph));
+    }
+  }
+  return result;
+}
+
+/** Assert that every graph and every node within it (recursively) has provenance. */
+function assertProvenanceRecursive(g: Graph, context: string): void {
+  for (const graph of collectAllGraphs(g)) {
+    expect(graph.provenance.length, `${context}: a graph has no provenance`).toBeGreaterThan(0);
+    for (const node of graph.nodes) {
+      expect(
+        node.provenance.length,
+        `${context}: node ${node.id} (${node.kind}) has no provenance`,
+      ).toBeGreaterThan(0);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -58,9 +88,12 @@ def sumOfDoubles : List Int -> Int =
   }
 `;
 
-  test("defs present", () => {
+  test("exact def keys", () => {
     const m = elab(src);
-    expect(m.defs.has("sumOfDoubles")).toBe(true);
+    expect([...m.defs.keys()].sort()).toEqual([
+      "Golden.Let.sumOfDoubles",
+      "sumOfDoubles",
+    ]);
   });
 
   test("sumOfDoubles graph shape", () => {
@@ -68,12 +101,9 @@ def sumOfDoubles : List Int -> Int =
     expect(normalizeGraph(def(m, "sumOfDoubles"))).toMatchSnapshot();
   });
 
-  test("all nodes have provenance", () => {
+  test("all graphs and nodes have provenance", () => {
     const m = elab(src);
-    const g = def(m, "sumOfDoubles");
-    for (const node of g.nodes) {
-      expect(node.provenance.length, `node ${node.id} (${node.kind}) missing provenance`).toBeGreaterThan(0);
-    }
+    assertProvenanceRecursive(def(m, "sumOfDoubles"), "sumOfDoubles");
   });
 });
 
@@ -96,9 +126,12 @@ def handleResult : { result: Result, label: Text } -> Text =
   }
 `;
 
-  test("defs present", () => {
+  test("exact def keys", () => {
     const m = elab(src);
-    expect(m.defs.has("handleResult")).toBe(true);
+    expect([...m.defs.keys()].sort()).toEqual([
+      "Golden.CaseField.handleResult",
+      "handleResult",
+    ]);
   });
 
   test("handleResult graph shape", () => {
@@ -115,6 +148,11 @@ def handleResult : { result: Result, label: Text } -> Text =
       expect(caseNode.field).toBe("result");
       expect(caseNode.contextTy).toBeDefined();
     }
+  });
+
+  test("all graphs and nodes have provenance", () => {
+    const m = elab(src);
+    assertProvenanceRecursive(def(m, "handleResult"), "handleResult");
   });
 });
 
@@ -143,10 +181,16 @@ def reflectThenTranslate : Point -> Point =
   reflect >>> translate
 `;
 
-  test("defs present", () => {
+  test("exact def keys", () => {
     const m = elab(src);
-    for (const name of ["reflect", "reflectThenTranslate", "translate"])
-      expect(m.defs.has(name), name).toBe(true);
+    expect([...m.defs.keys()].sort()).toEqual([
+      "Golden.Fanout.reflect",
+      "Golden.Fanout.reflectThenTranslate",
+      "Golden.Fanout.translate",
+      "reflect",
+      "reflectThenTranslate",
+      "translate",
+    ]);
   });
 
   test("reflect graph shape", () => {
@@ -162,6 +206,12 @@ def reflectThenTranslate : Point -> Point =
   test("reflectThenTranslate graph shape", () => {
     const m = elab(src);
     expect(normalizeGraph(def(m, "reflectThenTranslate"))).toMatchSnapshot();
+  });
+
+  test("all graphs and nodes have provenance", () => {
+    const m = elab(src);
+    for (const name of ["reflect", "translate", "reflectThenTranslate"])
+      assertProvenanceRecursive(def(m, name), name);
   });
 });
 
@@ -186,10 +236,14 @@ def unitBox : Unit -> BoundingBox =
   build { topLeft: origin, bottomRight: origin } >>> BoundingBox
 `;
 
-  test("defs present", () => {
+  test("exact def keys", () => {
     const m = elab(src);
-    for (const name of ["origin", "unitBox"])
-      expect(m.defs.has(name), name).toBe(true);
+    expect([...m.defs.keys()].sort()).toEqual([
+      "Golden.Build.origin",
+      "Golden.Build.unitBox",
+      "origin",
+      "unitBox",
+    ]);
   });
 
   test("origin graph shape", () => {
@@ -205,8 +259,13 @@ def unitBox : Unit -> BoundingBox =
   test("unitBox refs origin without DupNode (build provides independent Unit per field)", () => {
     const m = elab(src);
     const g = def(m, "unitBox");
-    // build provides independent Unit for each field — no dup needed
     const dups = g.nodes.filter((n) => n.kind === "dup");
     expect(dups).toHaveLength(0);
+  });
+
+  test("all graphs and nodes have provenance", () => {
+    const m = elab(src);
+    for (const name of ["origin", "unitBox"])
+      assertProvenanceRecursive(def(m, name), name);
   });
 });

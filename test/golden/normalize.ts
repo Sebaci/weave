@@ -188,11 +188,12 @@ export function normalizeGraph(graph: Graph): object {
   const ctx = mkCtx();
   preassign(ctx, graph);
   return {
-    effect:  graph.effect,
-    inPort:  normPort(ctx, graph.inPort),
-    outPort: normPort(ctx, graph.outPort),
-    nodes:   graph.nodes.map((n) => renderNode(ctx, n)),
-    wires:   graph.wires.map((w) => renderWire(ctx, w)),
+    effect:     graph.effect,
+    provenance: graph.provenance.length > 0,
+    inPort:     normPort(ctx, graph.inPort),
+    outPort:    normPort(ctx, graph.outPort),
+    nodes:      graph.nodes.map((n) => renderNode(ctx, n)),
+    wires:      graph.wires.map((w) => renderWire(ctx, w)),
   };
 }
 

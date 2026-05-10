@@ -109,6 +109,7 @@ exports[`build: origin and unitBox > origin graph shape 1`] = `
     "label": "out",
     "ty": "Point",
   },
+  "provenance": true,
   "wires": [
     {
       "from": "port[4]",
@@ -233,6 +234,7 @@ exports[`build: origin and unitBox > unitBox graph shape 1`] = `
     "label": "out",
     "ty": "BoundingBox",
   },
+  "provenance": true,
   "wires": [
     {
       "from": "port[0]",
@@ -327,6 +329,7 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
               "label": "out",
               "ty": "Text",
             },
+            "provenance": true,
             "wires": [
               {
                 "from": "port[0]",
@@ -408,6 +411,7 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
               "label": "out",
               "ty": "Text",
             },
+            "provenance": true,
             "wires": [
               {
                 "from": "port[0]",
@@ -449,6 +453,7 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
     "label": "out",
     "ty": "Text",
   },
+  "provenance": true,
   "wires": [
     {
       "from": "in",
@@ -597,6 +602,7 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
               "label": "out",
               "ty": "Point",
             },
+            "provenance": true,
             "wires": [
               {
                 "from": "port[0]",
@@ -646,6 +652,7 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
     "label": "out",
     "ty": "Point",
   },
+  "provenance": true,
   "wires": [
     {
       "from": "in",
@@ -702,6 +709,7 @@ exports[`fanout: Point transformations > reflectThenTranslate graph shape 1`] = 
     "label": "out",
     "ty": "Point",
   },
+  "provenance": true,
   "wires": [
     {
       "from": "in",
@@ -1032,6 +1040,7 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               "label": "out",
               "ty": "Point",
             },
+            "provenance": true,
             "wires": [
               {
                 "from": "port[0]",
@@ -1105,6 +1114,7 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
     "label": "out",
     "ty": "Point",
   },
+  "provenance": true,
   "wires": [
     {
       "from": "in",
@@ -1156,6 +1166,7 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               "label": "out",
               "ty": "Int",
             },
+            "provenance": true,
             "wires": [
               {
                 "from": "port[0]",
@@ -1486,6 +1497,7 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               "label": "out",
               "ty": "Int",
             },
+            "provenance": true,
             "wires": [
               {
                 "from": "port[0]",
@@ -1556,6 +1568,7 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
     "label": "out",
     "ty": "Int",
   },
+  "provenance": true,
   "wires": [
     {
       "from": "in",
