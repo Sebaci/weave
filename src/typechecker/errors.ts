@@ -44,6 +44,7 @@ export type ErrorCode =
   | "E_NOT_SCHEMA"
   | "E_SCHEMA_MISSING_ARG"
   | "E_SCHEMA_UNKNOWN_ARG"
+  | "E_SCHEMA_CYCLE"
   // Elaboration
   | "E_ELABORATION"
   // Internal (should never occur in normal use)

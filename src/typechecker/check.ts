@@ -90,18 +90,24 @@ function collectSchemaDeps(expr: Expr, moduleSchemaNames: Set<string>): Set<stri
 }
 
 /** Topologically sort schema defs so that if A instantiates B, B appears before A.
- *  Uses Kahn's algorithm. Any schemas in a cycle (invalid programs) are appended
- *  in source order; the typechecker will catch the underlying error. */
-function topoSortSchemaDefs(schemaDefs: DefDecl[], moduleSchemaNames: Set<string>): DefDecl[] {
-  if (schemaDefs.length <= 1) return schemaDefs;
+ *  Uses Kahn's algorithm. Returns sorted defs and any that form a cycle.
+ *  Cyclic schemas must not be checked — the caller should emit E_SCHEMA_CYCLE errors. */
+function topoSortSchemaDefs(
+  schemaDefs: DefDecl[],
+  moduleSchemaNames: Set<string>,
+): { sorted: DefDecl[]; cyclic: DefDecl[] } {
+  if (schemaDefs.length === 0) return { sorted: [], cyclic: [] };
 
-  const byName    = new Map<string, DefDecl>(schemaDefs.map(d => [d.name, d]));
+  const byName     = new Map<string, DefDecl>(schemaDefs.map(d => [d.name, d]));
   const dependents = new Map<string, string[]>(schemaDefs.map(d => [d.name, []]));
   const inDegree   = new Map<string, number>(schemaDefs.map(d => [d.name, 0]));
 
+  // Schemas that directly instantiate themselves are self-cycles; mark them
+  // with a high inDegree so Kahn's excludes them from the sorted output.
   for (const d of schemaDefs) {
     const deps = collectSchemaDeps(d.body, moduleSchemaNames);
-    deps.delete(d.name); // self-references don't affect ordering
+    if (deps.has(d.name)) inDegree.set(d.name, inDegree.get(d.name)! + 1);
+    deps.delete(d.name);
     for (const dep of deps) {
       if (byName.has(dep)) {
         dependents.get(dep)!.push(d.name);
@@ -124,13 +130,10 @@ function topoSortSchemaDefs(schemaDefs: DefDecl[], moduleSchemaNames: Set<string
     }
   }
 
-  // Append any remaining nodes (cycle — append in source order)
-  if (sorted.length < schemaDefs.length) {
-    const seen = new Set(sorted.map(d => d.name));
-    for (const d of schemaDefs) { if (!seen.has(d.name)) sorted.push(d); }
-  }
-
-  return sorted;
+  // Any remaining nodes are part of a cycle.
+  const seen   = new Set(sorted.map(d => d.name));
+  const cyclic = schemaDefs.filter(d => !seen.has(d.name));
+  return { sorted, cyclic };
 }
 
 // ---------------------------------------------------------------------------
@@ -178,15 +181,31 @@ export function checkModule(mod: Module, seeds?: ModuleExports): TypeResult<Type
   // Sweep 1: schema defs in topological order (dependencies before dependents).
   // This ensures every schema's intrinsicEff is fully populated before any schema
   // that instantiates it is checked — including schema-to-schema forward refs.
+  // Schemas in a cycle are rejected outright (E_SCHEMA_CYCLE) rather than checked
+  // with stale "pure" placeholders, which would produce unsound effect judgements.
   const allSchemaDefs = mod.decls
     .filter((d): d is { tag: "DefDecl"; decl: DefDecl } =>
       d.tag === "DefDecl" && d.decl.params.length > 0)
     .map(d => d.decl);
   const moduleSchemaNames = new Set(allSchemaDefs.map(d => d.name));
-  for (const decl of topoSortSchemaDefs(allSchemaDefs, moduleSchemaNames)) {
+  const { sorted: sortedSchemaDefs, cyclic: cyclicSchemaDefs } =
+    topoSortSchemaDefs(allSchemaDefs, moduleSchemaNames);
+
+  for (const decl of sortedSchemaDefs) {
     const r = checkDef(decl, env);
     propagateIntrinsicEff(decl, r);
     defResults.push(r);
+  }
+
+  if (cyclicSchemaDefs.length > 0) {
+    const cycleNames = cyclicSchemaDefs.map(d => d.name).join(", ");
+    for (const decl of cyclicSchemaDefs) {
+      defResults.push(typeError(
+        `schema instantiation cycle involving: ${cycleNames}`,
+        decl.meta.id,
+        "E_SCHEMA_CYCLE",
+      ));
+    }
   }
 
   // Sweep 2: non-schema defs — all schema intrinsicEff values are now set.

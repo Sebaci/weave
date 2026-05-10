@@ -310,3 +310,30 @@ test("schema: nested schema instantiation does not over-approximate intrinsic ef
   // With a pure arg, the instantiated effect must be pure, not sequential.
   expect(def!.morphTy.eff).toBe("pure");
 });
+
+test("schema: self-instantiation cycle is rejected (E_SCHEMA_CYCLE)", () => {
+  // A schema whose body directly instantiates itself would unroll infinitely.
+  // It must be rejected rather than checked with a stale pure placeholder.
+  const src = [
+    "def loop (f: Unit -> Int ! sequential) : Unit -> Int ! sequential = loop(f: f)",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  const r = checkModule(mod);
+  expect(r.ok).toBe(false);
+  expect(r.ok ? null : r.errors[0]?.code).toBe("E_SCHEMA_CYCLE");
+});
+
+test("schema: mutual schema instantiation cycle is rejected (E_SCHEMA_CYCLE)", () => {
+  // a instantiates b and b instantiates a — a two-node cycle.
+  // Without cycle detection, one of them would be checked with the other's
+  // pure placeholder, producing a soundness hole for effect inference.
+  const src = [
+    "effect io : Unit -> Int ! sequential",
+    "def a (f: Unit -> Int ! sequential) : Unit -> Int ! sequential = b(g: f)",
+    "def b (g: Unit -> Int ! sequential) : Unit -> Int ! sequential = perform io >>> a(f: g)",
+  ].join("\n");
+  const mod = assertOk(parseModule(src), "parse");
+  const r = checkModule(mod);
+  expect(r.ok).toBe(false);
+  expect(r.ok ? null : r.errors[0]?.code).toBe("E_SCHEMA_CYCLE");
+});
