@@ -1103,8 +1103,26 @@ function checkCaseOrFold(
       ? substAdt(instantiatedPayload ?? { tag: "Unit" }, inputTy, { tag: "TyVar", name: carrierVar })
       : (instantiatedPayload ?? { tag: "Unit" });
 
+    // For multi-recursive ADTs (e.g. Tree { left: A, right: A }) the same carrier TyVar
+    // appears in both fields. Checking the handler with unresolved TyVars means
+    // unify(TyVar, TyVar) can't anchor the carrier to a concrete type inside the handler
+    // (e.g. `left + right` fails because `+` needs Int, not TyVar).
+    //
+    // Fix: if the carrier has already been resolved to a fully-concrete type (no residual
+    // TyVars), apply the outer subst to the branch payload before checking. When the
+    // carrier is not yet concrete (e.g. schema folds where it's still a named TyVar like
+    // `List(b)`), we leave it unresolved — the outer unification chain handles it later.
+    const resolvedBranchPayloadTy = (() => {
+      if (!isFold || carrierVar === null) return branchPayloadTy;
+      const resolvedCarrier = applySubst({ tag: "TyVar", name: carrierVar }, subst, effSubst);
+      const carrierVars = new Set<string>();
+      collectVarsInType(resolvedCarrier, carrierVars, new Set());
+      if (carrierVars.size > 0) return branchPayloadTy; // not concrete yet
+      return applySubst(branchPayloadTy, subst, effSubst);
+    })();
+
     // Check the branch handler
-    const handlerR = checkHandler(branch.handler, branchPayloadTy, env, sourceId);
+    const handlerR = checkHandler(branch.handler, resolvedBranchPayloadTy, env, sourceId);
     if (!handlerR.ok) { errors.push(...handlerR.errors); continue; }
     const { typedHandler, outputTy: branchOut, eff: branchEff } = handlerR.value;
 

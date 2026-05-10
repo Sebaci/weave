@@ -32,6 +32,14 @@ const shapeXDecl = mkTypeDeclVariant("ShapeX", [], [
   mkCtorDecl("Rect", [stField("x", stBase("Int"))]),
 ]);
 
+// def seqFromX : { x: Int } -> Int ! sequential = 0
+// Used for the effect propagation test: Circle branch input = ρ = { x: Int }.
+const rhoTy = stRecord([stField("x", stBase("Int"))]);
+const seqFromXDecl = mkDefDecl(
+  "seqFromX", [], stArrow(rhoTy, stBase("Int"), "sequential"), null,
+  pipeline(stepLit({ tag: "int", value: 0 })),
+);
+
 // Input type for tests: { x: Int, shape: Shape }
 //   k = "shape", ρ = { x: Int }
 const inputTy = stRecord([stField("x", stBase("Int")), stField("shape", stNamed("Shape"))]);
@@ -99,6 +107,47 @@ test("case .field: record branch input type = merge(Pi, ρ) (Pi and ρ fields bo
   const r = checkModule(mkModule([], [], [topTy(shapeDecl), topDef(def)]));
   expect(r.ok).toBe(true);
 });
+
+// ---------------------------------------------------------------------------
+// Effect propagation
+// ---------------------------------------------------------------------------
+
+test("case .field: effect is join of branch effects", () => {
+  // Circle branch uses seqOp (sequential); Rect returns literal 0 (pure).
+  // Join = sequential. Declaring ! pure should fail; ! sequential should succeed.
+  const defFail = mkDefDecl(
+    "test", [], stArrow(inputTy, stBase("Int"), "pure"), null,
+    pipeline(stepCaseField("shape", [
+      branch("Circle", nullaryHandler(pipeline(stepName("seqFromX")))),
+      branch("Rect", recordHandler(
+        [bindBinder("w"), bindBinder("h")],
+        pipeline(stepLit({ tag: "int", value: 0 })),
+      )),
+    ])),
+  );
+  const rFail = checkModule(mkModule([], [], [topTy(shapeDecl), topDef(seqFromXDecl), topDef(defFail)]));
+  expect(rFail.ok).toBe(false);
+  if (!rFail.ok) {
+    expect(rFail.errors.some((e) => e.code === "E_EFFECT_MISMATCH")).toBe(true);
+  }
+
+  const defOk = mkDefDecl(
+    "test", [], stArrow(inputTy, stBase("Int"), "sequential"), null,
+    pipeline(stepCaseField("shape", [
+      branch("Circle", nullaryHandler(pipeline(stepName("seqFromX")))),
+      branch("Rect", recordHandler(
+        [bindBinder("w"), bindBinder("h")],
+        pipeline(stepLit({ tag: "int", value: 0 })),
+      )),
+    ])),
+  );
+  const rOk = checkModule(mkModule([], [], [topTy(shapeDecl), topDef(seqFromXDecl), topDef(defOk)]));
+  expect(rOk.ok).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Scope
+// ---------------------------------------------------------------------------
 
 test("case .field: eliminated field k is not in branch scope (E_UNDEFINED_NAME)", () => {
   // k = shape. Inside Circle branch, shape has been eliminated — referencing it is an error.

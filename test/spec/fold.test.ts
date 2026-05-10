@@ -27,6 +27,15 @@ const intListDecl = mkTypeDeclVariant("IntList", [], [
   ]),
 ]);
 
+// type Tree = Leaf | Node { left: Tree, right: Tree }   (two recursive positions)
+const treeDecl = mkTypeDeclVariant("Tree", [], [
+  mkCtorDecl("Leaf", null),
+  mkCtorDecl("Node", [
+    stField("left", stNamed("Tree")),
+    stField("right", stNamed("Tree")),
+  ]),
+]);
+
 // type Coin = Heads | Tails   (non-recursive, for fold-rejection test)
 // Do NOT use builtin-shadowing names like "Bool".
 const coinDecl = mkTypeDeclVariant("Coin", [], [
@@ -108,6 +117,34 @@ test("fold: effect is join of all branch effects", () => {
     topTy(intListDecl), topDef(seqOpDecl), topDef(defOk),
   ]));
   expect(rOk.ok).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Nested recursive positions
+// ---------------------------------------------------------------------------
+
+test("fold: all recursive fields in multi-recursive ADT have carrier type A (left + right compiles)", () => {
+  // def size : Tree -> Int = fold { Leaf: 1, Node: { left, right } >>> left + right }
+  // Tree has two recursive positions (left, right). fold must substitute both to the
+  // carrier Int. If either were left as Tree, left + right would be a type error.
+  const def = mkDefDecl(
+    "size", [], stArrow(stNamed("Tree"), stBase("Int")), null,
+    pipeline(stepFold([
+      branch("Leaf", nullaryHandler(pipeline(stepLit({ tag: "int", value: 1 })))),
+      branch("Node", recordHandler(
+        [bindBinder("left"), bindBinder("right")],
+        pipeline(stepInfix("+", stepName("left"), stepName("right"))),
+      )),
+    ])),
+  );
+  const r = checkModule(mkModule([], [], [topTy(treeDecl), topDef(def)]));
+  expect(r.ok).toBe(true);
+
+  if (r.ok) {
+    const def_ = r.value.typedDefs.get("size");
+    expect(def_?.morphTy.output).toMatchObject({ tag: "Int" });
+    expect(def_?.morphTy.eff).toBe("pure");
+  }
 });
 
 // ---------------------------------------------------------------------------
