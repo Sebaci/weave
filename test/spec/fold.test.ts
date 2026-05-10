@@ -151,6 +151,25 @@ test("fold: all recursive fields in multi-recursive ADT have carrier type A (lef
 // Validity
 // ---------------------------------------------------------------------------
 
+test("fold: branch type mismatch (E_BRANCH_TYPE_MISMATCH)", () => {
+  // Nil → 0 (Int), Cons → "oops" (Text) → branch output conflict.
+  const def = mkDefDecl(
+    "test", [], stArrow(stNamed("IntList"), stBase("Int")), null,
+    pipeline(stepFold([
+      branch("Nil",  nullaryHandler(pipeline(stepLit({ tag: "int",  value: 0 })))),
+      branch("Cons", recordHandler(
+        [bindBinder("head"), bindBinder("tail")],
+        pipeline(stepLit({ tag: "text", value: "oops" })),
+      )),
+    ])),
+  );
+  const r = checkModule(mkModule([], [], [topTy(intListDecl), topDef(def)]));
+  expect(r.ok).toBe(false);
+  if (!r.ok) {
+    expect(r.errors.some((e) => e.code === "E_BRANCH_TYPE_MISMATCH")).toBe(true);
+  }
+});
+
 test("fold: rejected on non-recursive ADT (E_NOT_RECURSIVE_ADT)", () => {
   // Coin is a non-recursive variant — fold on Coin is a type error.
   const def = mkDefDecl(

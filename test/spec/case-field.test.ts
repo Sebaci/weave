@@ -149,6 +149,25 @@ test("case .field: effect is join of branch effects", () => {
 // Scope
 // ---------------------------------------------------------------------------
 
+test("case .field: branch type mismatch (E_BRANCH_TYPE_MISMATCH)", () => {
+  // Circle → 0 (Int), Rect → "oops" (Text) → branch output conflict.
+  const def = mkDefDecl(
+    "test", [], stArrow(inputTy, stBase("Int")), null,
+    pipeline(stepCaseField("shape", [
+      branch("Circle", nullaryHandler(pipeline(stepLit({ tag: "int",  value: 0 })))),
+      branch("Rect",   recordHandler(
+        [bindBinder("w"), bindBinder("h")],
+        pipeline(stepLit({ tag: "text", value: "oops" })),
+      )),
+    ])),
+  );
+  const r = checkModule(mkModule([], [], [topTy(shapeDecl), topDef(def)]));
+  expect(r.ok).toBe(false);
+  if (!r.ok) {
+    expect(r.errors.some((e) => e.code === "E_BRANCH_TYPE_MISMATCH")).toBe(true);
+  }
+});
+
 test("case .field: eliminated field k is not in branch scope (E_UNDEFINED_NAME)", () => {
   // k = shape. Inside Circle branch, shape has been eliminated — referencing it is an error.
   const def = mkDefDecl(

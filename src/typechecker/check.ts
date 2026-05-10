@@ -996,7 +996,7 @@ function checkFanout(
       : f.expr;
 
     // norm_I: field expressions must have domain inputTy or 1
-    const r = normI(fieldExpr, inputTy, env, { construct: "fanout", name: f.name, sourceId });
+    const r = normI(fieldExpr, inputTy, env);
     if (!r.ok) { errors.push(...r.errors); continue; }
     const typedExpr = r.value;
     const fieldName = f.tag === "Field" ? f.name : f.name;
@@ -1018,14 +1018,8 @@ function checkFanout(
  * Case A: expression domain = inputTy → use directly
  * Case B: expression domain = 1 → lift via !
  * Case C: other domain → type error
- *
- * When `fieldCtx` is supplied (fanout field), Case C emits E_NORM_DOMAIN_MISMATCH
- * instead of the generic input-typed failure, making the categorical constraint visible.
  */
-function normI(
-  expr: Expr, inputTy: Type, env: CheckEnv,
-  fieldCtx?: { construct: string; name: string; sourceId: SourceNodeId },
-): TypeResult<TypedExpr> {
+function normI(expr: Expr, inputTy: Type, env: CheckEnv): TypeResult<TypedExpr> {
   // Try checking as input-derived (Case A)
   const rA = checkExpr(expr, inputTy, env);
   if (rA.ok) return rA;
@@ -1040,15 +1034,11 @@ function normI(
     return rB;
   }
 
-  // Case C: neither works
-  if (fieldCtx) {
-    return typeError(
-      `${fieldCtx.construct} field '${fieldCtx.name}': expression domain must be the input type ${showType(inputTy)} or Unit`,
-      fieldCtx.sourceId,
-      "E_NORM_DOMAIN_MISMATCH",
-    );
-  }
-  return rA; // return the more informative error (from input-typed attempt)
+  // Case C: neither works — return the input-typed error (most actionable for the user).
+  // Note: dual failure does not guarantee a top-level domain mismatch; the expression
+  // may be correctly input-derived but contain an internal type error. Preserving rA
+  // keeps the actionable downstream diagnostic visible.
+  return rA;
 }
 
 // ---------------------------------------------------------------------------
@@ -1697,7 +1687,7 @@ function checkSchemaInst(
     const paramEff = applyEffSubst(param.morphTy.eff, effSubst);
     const uEff = unifyEffect(paramEff, typedArg.morphTy.eff, effSubst);
     if (!uEff.ok) {
-      errors.push({ code: "E_EFFECT_MISMATCH", message: `Argument '${param.name}': effect mismatch`, sourceId: arg.meta.id });
+      errors.push({ code: "E_EFFECT_MISMATCH", message: `Argument '${param.name}': effect mismatch: expected ${showEffect(paramEff)}, got ${showEffect(typedArg.morphTy.eff)}`, sourceId: arg.meta.id });
       continue;
     }
     effSubst = uEff.effSubst;
