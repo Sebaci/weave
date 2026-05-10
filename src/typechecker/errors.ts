@@ -21,6 +21,8 @@ export type ErrorCode =
   | "E_AMBIGUOUS_IMPORT"
   // Typecheck — type mismatches
   | "E_TYPE_MISMATCH"
+  | "E_BRANCH_TYPE_MISMATCH"
+  | "E_NORM_DOMAIN_MISMATCH"
   | "E_EFFECT_MISMATCH"
   | "E_TYPE_ARITY"
   // Typecheck — structure

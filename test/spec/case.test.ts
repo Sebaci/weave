@@ -1,6 +1,6 @@
 /**
  * Spec §10 (case) rules:
- *   - All branches must unify to the same output type (E_TYPE_MISMATCH on mismatch)
+ *   - All branches must unify to the same output type (E_BRANCH_TYPE_MISMATCH on mismatch)
  *   - Effect = join of all branch effects (static upper bound, all branches count)
  *   - Exhaustiveness: all constructors must be covered (E_MISSING_BRANCH)
  *   - case does NOT carrier-substitute recursive fields (unlike fold) — tail: IntList stays IntList
@@ -60,8 +60,8 @@ test("case: all branches unify to same type (ok)", () => {
   expect(r.ok).toBe(true);
 });
 
-test("case: branch type mismatch (E_TYPE_MISMATCH)", () => {
-  // Heads returns Int (1), Tails returns Coin (Heads) → type mismatch.
+test("case: branch type mismatch (E_BRANCH_TYPE_MISMATCH)", () => {
+  // Heads returns Int (1), Tails returns Coin (Heads) → branch output conflict.
   const def = mkDefDecl(
     "test", [], stArrow(stNamed("Coin"), stBase("Int")), null,
     pipeline(stepCase([
@@ -72,7 +72,7 @@ test("case: branch type mismatch (E_TYPE_MISMATCH)", () => {
   const r = checkModule(mkModule([], [], [topTy(coinDecl), topDef(def)]));
   expect(r.ok).toBe(false);
   if (!r.ok) {
-    expect(r.errors.some((e) => e.code === "E_TYPE_MISMATCH")).toBe(true);
+    expect(r.errors.some((e) => e.code === "E_BRANCH_TYPE_MISMATCH")).toBe(true);
   }
 });
 

@@ -996,7 +996,7 @@ function checkFanout(
       : f.expr;
 
     // norm_I: field expressions must have domain inputTy or 1
-    const r = normI(fieldExpr, inputTy, env);
+    const r = normI(fieldExpr, inputTy, env, { construct: "fanout", name: f.name, sourceId });
     if (!r.ok) { errors.push(...r.errors); continue; }
     const typedExpr = r.value;
     const fieldName = f.tag === "Field" ? f.name : f.name;
@@ -1018,8 +1018,14 @@ function checkFanout(
  * Case A: expression domain = inputTy → use directly
  * Case B: expression domain = 1 → lift via !
  * Case C: other domain → type error
+ *
+ * When `fieldCtx` is supplied (fanout field), Case C emits E_NORM_DOMAIN_MISMATCH
+ * instead of the generic input-typed failure, making the categorical constraint visible.
  */
-function normI(expr: Expr, inputTy: Type, env: CheckEnv): TypeResult<TypedExpr> {
+function normI(
+  expr: Expr, inputTy: Type, env: CheckEnv,
+  fieldCtx?: { construct: string; name: string; sourceId: SourceNodeId },
+): TypeResult<TypedExpr> {
   // Try checking as input-derived (Case A)
   const rA = checkExpr(expr, inputTy, env);
   if (rA.ok) return rA;
@@ -1035,6 +1041,13 @@ function normI(expr: Expr, inputTy: Type, env: CheckEnv): TypeResult<TypedExpr> 
   }
 
   // Case C: neither works
+  if (fieldCtx) {
+    return typeError(
+      `${fieldCtx.construct} field '${fieldCtx.name}': expression domain must be the input type ${showType(inputTy)} or Unit`,
+      fieldCtx.sourceId,
+      "E_NORM_DOMAIN_MISMATCH",
+    );
+  }
   return rA; // return the more informative error (from input-typed attempt)
 }
 
@@ -1134,7 +1147,7 @@ function checkCaseOrFold(
     } else {
       const uR = unify(outputTy, branchOut, subst, effSubst);
       if (!uR.ok) {
-        errors.push({ code: "E_TYPE_MISMATCH", message: `${isFold ? "fold" : "case"} branch '${branch.ctor}': output type ${showType(branchOut)} does not unify with ${showType(outputTy)}: ${uR.message}`, sourceId });
+        errors.push({ code: "E_BRANCH_TYPE_MISMATCH", message: `${isFold ? "fold" : "case"} branch '${branch.ctor}': output type ${showType(branchOut)} is incompatible with prior branches (${showType(outputTy)})`, sourceId });
         continue;
       }
       subst = uR.subst; effSubst = uR.effSubst;
@@ -1280,7 +1293,7 @@ function checkCaseField(
     } else {
       const uR = unify(outputTy, branchOut, subst, effSubst);
       if (!uR.ok) {
-        errors.push({ code: "E_TYPE_MISMATCH", message: `case .${field} branch '${branch.ctor}': output ${showType(branchOut)} does not unify with ${showType(outputTy)}: ${uR.message}`, sourceId });
+        errors.push({ code: "E_BRANCH_TYPE_MISMATCH", message: `case .${field} branch '${branch.ctor}': output type ${showType(branchOut)} is incompatible with prior branches (${showType(outputTy)})`, sourceId });
         continue;
       }
       subst = uR.subst; effSubst = uR.effSubst;
@@ -1669,13 +1682,14 @@ function checkSchemaInst(
     const paramOutput = applySubst(param.morphTy.output, subst, effSubst);
     const uIn = unify(paramInput, typedArg.morphTy.input, subst, effSubst);
     if (!uIn.ok) {
-      errors.push({ code: "E_TYPE_MISMATCH", message: `Argument '${param.name}': input type mismatch: ${uIn.message}`, sourceId: arg.meta.id });
+      errors.push({ code: "E_TYPE_MISMATCH", message: `Argument '${param.name}': input type mismatch: expected ${showType(paramInput)}, got ${showType(typedArg.morphTy.input)}`, sourceId: arg.meta.id });
       continue;
     }
     subst = uIn.subst; effSubst = uIn.effSubst;
-    const uOut = unify(applySubst(paramOutput, subst, effSubst), typedArg.morphTy.output, subst, effSubst);
+    const expectedOut = applySubst(paramOutput, subst, effSubst);
+    const uOut = unify(expectedOut, typedArg.morphTy.output, subst, effSubst);
     if (!uOut.ok) {
-      errors.push({ code: "E_TYPE_MISMATCH", message: `Argument '${param.name}': output type mismatch: ${uOut.message}`, sourceId: arg.meta.id });
+      errors.push({ code: "E_TYPE_MISMATCH", message: `Argument '${param.name}': output type mismatch: expected ${showType(expectedOut)}, got ${showType(typedArg.morphTy.output)}`, sourceId: arg.meta.id });
       continue;
     }
     subst = uOut.subst; effSubst = uOut.effSubst;
