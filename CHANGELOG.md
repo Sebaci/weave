@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.3] - 2026-05-10
+
+### Added
+- Spec-driven test suite (`test/spec/`) covering §7–§11 of the Weave spec: `build`, `fanout`, `let`, `case`, `case .field`, and `fold`. 27 tests encoding the exact rules from the spec, including effect propagation, exhaustiveness, duplication constraints, field collision, carrier-type substitution, and the `case`/`fold` semantic distinction.
+
+### Fixed
+- `fold` over multi-recursive ADTs (e.g. `type Tree = Leaf | Node { left: Tree, right: Tree }`): the typechecker now correctly propagates the carrier type to all recursive field positions when the carrier is already concrete, so `left + right` in a `fold Tree → Int` handler type-checks correctly.
+
+---
+
 ## [0.10.2] - 2026-05-10
 
 ### Fixed
