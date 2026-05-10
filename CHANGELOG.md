@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Golden IR snapshot tests (`test/golden/`) covering `fold`+`let`, `case .field`, `fanout`, and `build` constructs. Snapshots lock down graph shape, port types, node kinds, wiring, and provenance (including recursively through nested branch and algebra graphs). Exact def-key assertions guard against unexpected elaborated definitions leaking into the module.
+
+---
+
 ## [0.10.3] - 2026-05-10
 
 ### Added
