@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.2] - 2026-05-10
+
+### Fixed
+- Schema instantiation effect precision: the typechecker now correctly computes the instantiated effect for higher-order defs, accounting for forward references and nested schema instantiation. Schema defs are checked in topological dependency order so that each schema's intrinsic body effect is known before any def that instantiates it is checked. Schema instantiation cycles (self or mutual) are now rejected with a clear `E_SCHEMA_CYCLE` error rather than silently accepted with an incorrect effect.
+
+---
+
 ## [0.10.1] - 2026-05-07
 
 ### Fixed
