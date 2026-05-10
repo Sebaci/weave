@@ -231,7 +231,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.10.0** — interactive REPL with inline expression evaluation.
+Current stage: **v0.10.3** — interactive REPL with inline expression evaluation.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -249,6 +249,9 @@ Current stage: **v0.10.0** — interactive REPL with inline expression evaluatio
 * ✅ `--input '<json>'` — type-directed JSON input for any monomorphic def
 * ✅ `--effect <op>=<builtin>` — bind declared effect ops to host I/O (`readFile`, `writeFile`, `getEnv`, `print`)
 * ✅ `weave repl` — interactive session: load files, run defs, evaluate inline expressions, manage effect bindings
+* ✅ Spec-driven test suite and golden IR snapshot tests
+
+**Toward 1.0.0:** diagnostics quality, expanded examples, newcomer usability pass.
 
 ---
 
