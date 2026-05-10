@@ -411,6 +411,9 @@ export function stepFanout(fields: FanoutField[]): Step {
 export function stepCase(branches: Branch[]): Step {
   return { tag: "Case", branches, meta: dummyMeta() };
 }
+export function stepCaseField(field: string, branches: Branch[]): Step {
+  return { tag: "Case", field, branches, meta: dummyMeta() };
+}
 export function stepFold(branches: Branch[]): Step {
   return { tag: "Fold", branches, meta: dummyMeta() };
 }
