@@ -107,34 +107,69 @@ Parse → Typecheck → Elaborate → Graph IR → Interpret
 git clone <repo>
 cd weave
 npm install
+npm run build:cli   # compile the weave binary → dist/weave.js
+npm link            # make 'weave' available globally
 ```
 
-That's it for the CLI. No global install required.
+After `npm link`, the `weave` command is available in any terminal.
+
+If you prefer not to install globally, you can also run `npm run cli -- <args>` in place of `weave <args>`.
 
 ### CLI
 
 ```bash
-npm run cli -- check <file>                            # parse + typecheck (all imported modules)
-npm run cli -- check <file> --json                     # machine-readable JSON diagnostics
-npm run cli -- run   <file> --def <name>               # run a Unit-input def
-npm run cli -- run   <file> --def <name> --input '<json>'  # run any monomorphic def with structured input
-npm run cli -- run   <file> --def <name> [--effect <op>=<builtin>]...  # bind effect ops to host implementations
-npm run cli -- repl                                    # interactive REPL
+weave check <file>                                    # parse + typecheck (all imported modules)
+weave check <file> --json                             # machine-readable JSON diagnostics
+weave run   <file> --def <name>                       # run a Unit-input def
+weave run   <file> --def <name> --input '<json>'      # run any monomorphic def with structured input
+weave run   <file> --def <name> --effect <op>=<builtin>  # bind effect ops to host implementations
+weave repl                                            # interactive REPL
 ```
 
 Examples:
 
 ```bash
-npm run cli -- check examples/hello.weave
-npm run cli -- run   examples/build.weave --def origin
-npm run cli -- run   examples/sum.weave   --def sum --input '{"tag":"Cons","head":1,"tail":{"tag":"Cons","head":2,"tail":{"tag":"Nil"}}}'
+weave check examples/hello.weave
+weave run   examples/build.weave --def origin
+weave run   examples/sum.weave   --def sum --input '{"tag":"Cons","head":1,"tail":{"tag":"Cons","head":2,"tail":{"tag":"Nil"}}}'
 ```
 
-Multi-module programs work as long as imported files are resolvable relative to the entry file:
+### REPL
 
 ```bash
-npm run cli -- check examples/main.weave   # resolves import Foo.Bar → examples/Foo/Bar.weave
+weave repl
 ```
+
+Inside the REPL:
+
+```
+weave> :load examples/sum.weave
+Loaded .../examples/sum.weave
+
+weave> :type sum
+sum : List Int -> Int
+
+weave> :run sum --input '{"tag":"Cons","head":1,"tail":{"tag":"Cons","head":2,"tail":{"tag":"Nil"}}}'
+3
+
+weave> :load examples/hello.weave
+Loaded .../examples/hello.weave
+
+weave> :effect print=print
+Bound print = print
+
+weave> :run greet
+Hello, Weave!
+```
+
+After loading a file, you can also type expressions directly at the prompt:
+
+```
+weave> 1 + 2
+3
+```
+
+Type `:help` for a full command list, `:quit` or `:q` to exit.
 
 ### VS Code Extension
 
@@ -231,16 +266,16 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.10.4** — interactive REPL with inline expression evaluation.
+Current stage: **v0.10.4** — approaching 1.0.0.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
 * ✅ Typechecker (unification, effect checking)
 * ✅ Elaboration rules & elaborator (typed AST → Graph IR)
-* ✅ Graph IR
+* ✅ Graph IR with IR validator
 * ✅ Interpreter (graph IR evaluation)
-* ✅ CLI (`weave check`, `weave run`, `weave run --input`, `weave repl`)
-* ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order, `case .field`)
+* ✅ CLI (`weave check`, `weave run`, `weave run --input`, `weave repl`) — installable via `npm link`
+* ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order, `case .field`, tree fold, file I/O)
 * ✅ Module system — import resolution, cycle detection, multi-module typechecking
 * ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
 * ✅ `weave run` with imports (multi-module elaboration + interpretation)
@@ -250,8 +285,7 @@ Current stage: **v0.10.4** — interactive REPL with inline expression evaluatio
 * ✅ `--effect <op>=<builtin>` — bind declared effect ops to host I/O (`readFile`, `writeFile`, `getEnv`, `print`)
 * ✅ `weave repl` — interactive session: load files, run defs, evaluate inline expressions, manage effect bindings
 * ✅ Spec-driven test suite and golden IR snapshot tests
-
-**Toward 1.0.0:** diagnostics quality, expanded examples, newcomer usability pass.
+* ✅ Public compiler API (`src/compiler.ts`) — browser-safe core, no Node.js dependencies
 
 ---
 

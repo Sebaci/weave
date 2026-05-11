@@ -25,14 +25,14 @@ if (command === "check") {
   const jsonMode = jsonFlag !== -1;
   const remaining = rest.filter((_, i) => i !== jsonFlag);
   if (!filePath || remaining.length > 0) {
-    die("Usage: npm run cli -- check <file> [--json]");
+    die("Usage: weave check <file> [--json]");
   }
   runCheck(filePath, jsonMode);
 } else if (command === "run") {
   let defName: string | undefined;
   let inputJson: string | undefined;
   const effectBindings: Array<[string, string]> = [];
-  const USAGE = "Usage: npm run cli -- run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...";
+  const USAGE = "Usage: weave run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...";
   const args = [...rest];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--def" && args[i + 1]) {
@@ -54,14 +54,14 @@ if (command === "check") {
   runRun(filePath, defName, inputJson, effectBindings);
 } else if (command === "repl") {
   if (filePath !== undefined || rest.length > 0) {
-    die("Usage: npm run cli -- repl");
+    die("Usage: weave repl");
   }
   runRepl();
 } else {
   console.error("Usage:");
-  console.error("  npm run cli -- check <file> [--json]");
-  console.error("  npm run cli -- run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...");
-  console.error("  npm run cli -- repl");
+  console.error("  weave check <file> [--json]");
+  console.error("  weave run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...");
+  console.error("  weave repl");
   process.exit(1);
 }
 
