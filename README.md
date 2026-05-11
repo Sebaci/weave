@@ -106,9 +106,8 @@ Parse → Typecheck → Elaborate → Graph IR → Interpret
 ```bash
 git clone <repo>
 cd weave
-npm install
-npm run build:cli   # compile the weave binary → dist/weave.js
-npm link            # make 'weave' available globally
+npm install   # also compiles the weave binary → dist/weave.js
+npm link      # make 'weave' available globally
 ```
 
 After `npm link`, the `weave` command is available in any terminal.
