@@ -88,7 +88,7 @@ export type NodeBase = {
 export type DupNode = NodeBase & {
   kind:    "dup";
   input:   Port;
-  outputs: Port[];   // n outputs, all same type as input; n >= 2
+  outputs: Port[];   // n outputs, all same type as input; n >= 2 (elaborator never emits n=1)
   effect:  "pure";
 };
 

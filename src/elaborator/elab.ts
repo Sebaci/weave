@@ -12,7 +12,7 @@
  */
 
 import type { Type, ConcreteEffect } from "../types/type.ts";
-import { effectJoin } from "../types/check.ts";
+import { effectJoin, typeEq } from "../types/check.ts";
 import { substAdt, applySubst } from "../types/subst.ts";
 import { isConcrete } from "../types/check.ts";
 
@@ -475,7 +475,6 @@ function elabBuild(
       sourceId:   srcId,
     };
     const fieldOutPortId = elabExpr(field.expr, unitOutPort.id, fieldCtx);
-    const fieldOutPort   = mkPort(field.expr.morphTy.output);
 
     // Splice the field sub-builder's nodes/wires into the main builder.
     for (const n of (fieldBuilder as unknown as { _nodes: import("../ir/ir.ts").Node[] })._nodes) {
@@ -522,28 +521,32 @@ function elabFanout(
     return liftUnit(inputPortId, step.morphTy.input, builder, srcId);
   }
 
-  // Create DupNode with n outputs
-  const inPort = mkPort(step.morphTy.input);
-  builder.wire(inputPortId, inPort.id);
-
-  const dupOutputs = Array.from({ length: n }, () => mkPort(step.morphTy.input));
-  const dupNode: DupNode = {
-    kind: "dup",
-    id: freshNodeId(), effect: "pure",
-    input: inPort, outputs: dupOutputs,
-    provenance: [prov(srcId, "dup-for-fanout")],
-  };
-  builder.addNode(dupNode);
+  // For n >= 2 create a DupNode; for n === 1 wire inputPortId directly (dup_1 = id).
+  let dupOutputIds: PortId[];
+  if (n === 1) {
+    dupOutputIds = [inputPortId];
+  } else {
+    const inPort = mkPort(step.morphTy.input);
+    builder.wire(inputPortId, inPort.id);
+    const dupOutputs = Array.from({ length: n }, () => mkPort(step.morphTy.input));
+    const dupNode: DupNode = {
+      kind: "dup",
+      id: freshNodeId(), effect: "pure",
+      input: inPort, outputs: dupOutputs,
+      provenance: [prov(srcId, "dup-for-fanout")],
+    };
+    builder.addNode(dupNode);
+    dupOutputIds = dupOutputs.map((p) => p.id);
+  }
 
   // Elaborate each branch with norm_I applied
   const tupleInputs: { label: string; port: { id: string; ty: Type } }[] = [];
 
   for (let i = 0; i < n; i++) {
     const field    = fanoutNode.fields[i]!;
-    const dupOut   = dupOutputs[i]!;
     const branchExpr = field.expr;
 
-    const branchOutPortId = elabNormI(branchExpr, dupOut.id, step.morphTy.input, ctx, srcId);
+    const branchOutPortId = elabNormI(branchExpr, dupOutputIds[i]!, step.morphTy.input, ctx, srcId);
     tupleInputs.push({ label: field.name, port: { id: branchOutPortId, ty: branchExpr.morphTy.output } });
   }
 
@@ -1032,21 +1035,20 @@ function elabLet(
   const newLocals = new Map<string, PortId[]>();
 
   // DupNode rPrimePort for all uses: one per projection + one for body piped input.
+  // rPrimeTotalUses >= 2 always (tupleInputs.length >= 1 because let always has at least the bound name).
   const rPrimeTotalUses = tupleInputs.length + 1; // projections + body input
-  let rPrimeSources: PortId[];
-  if (rPrimeTotalUses <= 1) {
-    rPrimeSources = [rPrimePort.id, rPrimePort.id]; // degenerate (shouldn't happen)
-  } else {
-    const rDupOuts = Array.from({ length: rPrimeTotalUses }, () => mkPort(rPrimeTy));
-    const rDupNode: DupNode = {
-      kind: "dup",
-      id: freshNodeId(), effect: "pure",
-      input: rPrimePort, outputs: rDupOuts,
-      provenance: [prov(srcId, "dup-for-let-body-projs")],
-    };
-    builder.addNode(rDupNode);
-    rPrimeSources = rDupOuts.map((p) => p.id);
+  if (rPrimeTotalUses < 2) {
+    throw new Error("Elaborator internal: let rPrimeTotalUses < 2 — invariant violated");
   }
+  const rDupOuts = Array.from({ length: rPrimeTotalUses }, () => mkPort(rPrimeTy));
+  const rDupNode: DupNode = {
+    kind: "dup",
+    id: freshNodeId(), effect: "pure",
+    input: rPrimePort, outputs: rDupOuts,
+    provenance: [prov(srcId, "dup-for-let-body-projs")],
+  };
+  builder.addNode(rDupNode);
+  const rPrimeSources = rDupOuts.map((p) => p.id);
   // Last slot reserved for body input; projections use [0..N-1]
   const bodyInputPortId = rPrimeSources[tupleInputs.length]!;
 
@@ -1208,6 +1210,13 @@ function elabNormI(
     // Case B: lift unit-sourced expr by inserting DropNode (! : I -> 1).
     const droppedPort = liftUnit(inputPortId, inputTy, ctx.builder, srcId);
     return elabExpr(expr, droppedPort, { ...ctx, inputType: { tag: "Unit" } });
+  }
+  // Case C: domain mismatch — typechecker should have caught this.
+  if (expr.morphTy.input.tag !== "Unit" && !typeEq(expr.morphTy.input, inputTy)) {
+    throw new Error(
+      `Elaborator internal: norm_I Case C — expr domain ${JSON.stringify(expr.morphTy.input)} ` +
+      `does not match input type ${JSON.stringify(inputTy)}`,
+    );
   }
   return elabExpr(expr, inputPortId, ctx);
 }
