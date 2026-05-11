@@ -9,7 +9,7 @@
     "prepare": "npm run build:cli",
     "typecheck": "tsc --noEmit",
     "cli": "tsx src/cli/index.ts",
-    "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist/weave.js && node -e \"require('fs').chmodSync('dist/weave.js', 0o755)\"",
+    "build:cli": "node scripts/build-cli.mjs",
     "lsp": "tsx src/lsp/server.ts",
     "bundle:lsp": "esbuild src/lsp/server.ts --bundle --platform=node --format=cjs --define:import.meta.url='\"file:///server.js\"' --outfile=editors/vscode/out/server.js",
     "build:ext": "npm --prefix editors/vscode install && npm --prefix editors/vscode run compile",
