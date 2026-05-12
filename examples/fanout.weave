@@ -3,6 +3,10 @@ module Examples.Fanout
 type Point =
   | Point { x: Int, y: Int }
 
+type List a =
+  | Nil
+  | Cons { head: a, tail: List a }
+
 def reflect : Point -> Point =
   case {
     Point: { x, y } >>> fanout { x: y, y: x } >>> Point,
@@ -15,3 +19,10 @@ def translate : Point -> Point =
 
 def reflectThenTranslate : Point -> Point =
   reflect >>> translate
+
+-- describe: fanout a List Int into { sum, length } simultaneously.
+def describe : List Int -> { sum: Int, length: Int } ! pure =
+  fanout {
+    sum:    fold { Nil: 0, Cons: { head, tail } >>> head + tail },
+    length: fold { Nil: 0, Cons: { head, tail } >>> tail + 1 },
+  }

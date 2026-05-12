@@ -17,3 +17,16 @@ def filter (pred : a -> Bool ! pure) : List a -> List a ! pure =
         False: tail,
       },
   }
+
+-- Wrapping Int in a record gives the predicate a named field to compare.
+-- Weave v1 has no way to reference the bare pipeline value in an expression
+-- without case/fold destructuring, so standalone Int -> Bool is inexpressible.
+type Elem = | Elem { value: Int }
+
+-- isPositive: predicate for use with filter.
+def isPositive : Elem -> Bool ! pure =
+  case { Elem: { value } >>> (value > 0) }
+
+-- keepPositives: schema instantiation — shows filter used with a real pred.
+def keepPositives : List Elem -> List Elem ! pure =
+  filter(pred: isPositive)

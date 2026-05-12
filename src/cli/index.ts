@@ -62,6 +62,8 @@ if (command === "check") {
   console.error("  weave check <file> [--json]");
   console.error("  weave run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...");
   console.error("  weave repl");
+  console.error("");
+  console.error("Note: effect ops named 'print' are automatically bound to the print builtin.");
   process.exit(1);
 }
 
