@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.5] - 2026-05-13
+
+### Fixed
+- Elaborator port-counting bug (`countUsesInTypedExpr` in `src/elaborator/elab.ts`): the function now correctly stops at `Case`/`CaseField`/`Fold` branch boundaries and counts `Let` node liveSet entries instead of recursing into branch bodies. The old code overcounted uses of outer handler locals inside branch bodies, causing extra unconsumed `DupNode` outputs (IR-1 violations) for programs that used `case .field` or `fold` inside a `let` body. Affected patterns: any `let` whose body dispatches on the let-bound value with `case .field`, when the outer handler's locals appear in multiple branches.
+- VS Code language server bundling (`src/lsp/server.ts`): switched from `createRequire`-based dynamic imports to static imports so esbuild bundles `vscode-languageserver` and `vscode-languageserver-textdocument` inline. The previous dynamic import pattern produced a 121 KB bundle missing those packages; the corrected bundle is 507 KB and fully self-contained.
+- `checkSchemaInst` type checking (`src/typechecker/check.ts`): schema argument expressions are now checked against the parameter's own input type (`paramInputTy`) rather than the outer pipeline input type, fixing a false type error in the VS Code extension for programs using schema instantiation.
+
+### Added
+- `examples/filter.weave`: `isPositive` predicate, `keepPositives` schema-instantiation example using `filter(pred: isPositive)`, and `Elem` wrapper type. Demonstrates that schema instantiation works end-to-end including elaboration and interpretation.
+- `examples/fanout.weave`: `describe` def — `fanout { sum: fold ..., length: fold ... }` — shows simultaneous multi-fold over a list via fanout.
+- 9 port-counting regression tests (`test/spec/elab-port-counting.test.ts`) targeting patterns that triggered the elaborator bug: variable in multiple `case .field` branches (fold and plain case handlers), nested let chains whose inner body is a CaseField, and schema instantiation with `filter(pred: isPositive)`. All 9 tests fail on the pre-fix code and pass on the corrected elaborator.
+- CLI `weave run` usage message now notes that effect operations named `print` are automatically bound to the built-in print handler.
+
+---
+
 ## [0.10.4] - 2026-05-10
 
 ### Added
