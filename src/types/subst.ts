@@ -37,12 +37,17 @@ export function substTyVar(ty: Type, varName: string, replacement: Type): Type {
     case "TyVar":
       return ty.name === varName ? replacement : ty;
 
-    case "Record":
-      return {
-        tag: "Record",
-        fields: ty.fields.map((f) => substFieldTyVar(f, varName, replacement)),
-        rest: ty.rest,
-      };
+    case "Record": {
+      const fields = ty.fields.map((f) => substFieldTyVar(f, varName, replacement));
+      // If the rest variable matches varName and the replacement is a Record,
+      // expand it: append the replacement's fields and propagate its rest.
+      // This makes substTyVar correctly handle row-variable bindings stored in
+      // the same Subst map (produced by unifyRows).
+      if (ty.rest === varName && replacement.tag === "Record") {
+        return { tag: "Record", fields: [...fields, ...replacement.fields], rest: replacement.rest };
+      }
+      return { tag: "Record", fields, rest: ty.rest };
+    }
 
     case "Named":
       return {

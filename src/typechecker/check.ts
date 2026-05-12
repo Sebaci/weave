@@ -715,6 +715,12 @@ export function checkExpr(expr: Expr, inputTy: Type, env: CheckEnv): TypeResult<
   let currentInput = inputTy;
   let overallEff: ConcreteEffect = "pure";
 
+  // Note: substitutions produced inside individual steps (e.g. by checkCase or
+  // checkSchemaInst) are not accumulated and threaded back through `currentInput`
+  // across steps. This is safe in v1 because all pipeline types are fully
+  // concrete — TyVars appear only in schema params which are resolved before
+  // elaboration, never in inter-step types. A future polymorphic pipeline would
+  // require checkStep to return a Subst and checkExpr to apply it to currentInput.
   for (const step of expr.steps) {
     if (step.tag === "Infix") {
       const r = handleInfix(step.op, step.left, step.right, currentInput, env, step.meta.id);
@@ -946,26 +952,34 @@ function checkBuild(
   ));
 }
 
-/** Collect all local names referenced in an expression. */
+/** Collect all local names referenced in an expression, respecting shadowing. */
 function collectLocalNames(expr: Expr, locals: LocalEnv): string[] {
   const found: string[] = [];
-  const visitStep = (step: Step) => {
-    if (step.tag === "Name" && locals.has(step.name)) found.push(step.name);
-    if (step.tag === "Build")   step.fields.forEach((f) => visitExpr(f.expr));
-    if (step.tag === "Fanout")  step.fields.forEach((f) => { if (f.tag === "Field") visitExpr(f.expr); });
-    if (step.tag === "Let")     { visitExpr(step.rhs); visitExpr(step.body); }
-    if (step.tag === "Over")    visitStep(step.transform);
+  const visitExpr = (e: Expr, loc: LocalEnv) => e.steps.forEach((s) => visitStep(s, loc));
+  const visitStep = (step: Step, loc: LocalEnv) => {
+    if (step.tag === "Name" && loc.has(step.name)) found.push(step.name);
+    if (step.tag === "Build")   step.fields.forEach((f) => visitExpr(f.expr, loc));
+    if (step.tag === "Fanout")  step.fields.forEach((f) => { if (f.tag === "Field") visitExpr(f.expr, loc); });
+    if (step.tag === "Let")     { visitExpr(step.rhs, loc); visitExpr(step.body, loc); }
+    if (step.tag === "Over")    visitStep(step.transform, loc);
     if (step.tag === "Case" || step.tag === "Fold")
-      step.branches.forEach((b) => visitHandler(b.handler));
-    if (step.tag === "Infix")      { visitStep(step.left); visitStep(step.right); }
-    if (step.tag === "SchemaInst") step.args.forEach((a) => visitExpr(a.expr));
+      step.branches.forEach((b) => visitHandler(b.handler, loc));
+    if (step.tag === "Infix")      { visitStep(step.left, loc); visitStep(step.right, loc); }
+    if (step.tag === "SchemaInst") step.args.forEach((a) => visitExpr(a.expr, loc));
   };
-  const visitExpr = (e: Expr) => e.steps.forEach(visitStep);
-  const visitHandler = (h: Handler) => {
-    if (h.tag === "NullaryHandler") visitExpr(h.body);
-    else visitExpr(h.body);
+  const visitHandler = (h: Handler, loc: LocalEnv) => {
+    if (h.tag === "NullaryHandler") {
+      visitExpr(h.body, loc);
+    } else {
+      // Record binders shadow outer locals within the handler body.
+      const restricted = new Map(loc);
+      for (const b of h.binders) {
+        if (b.tag === "Bind") restricted.delete(b.name);
+      }
+      visitExpr(h.body, restricted);
+    }
   };
-  visitExpr(expr);
+  visitExpr(expr, locals);
   return found;
 }
 
@@ -1214,8 +1228,8 @@ function checkCaseField(
     return typeError(`case .${field}: no field '${field}' in ${showType(inputTy)}`, sourceId, "E_UNKNOWN_FIELD");
   }
 
-  // ρ = input record minus field k
-  const contextTy: Type = { tag: "Record", fields: inputTy.fields.filter((f) => f.name !== field), rest: null };
+  // ρ = input record minus field k (preserve the row tail per spec §case .field)
+  const contextTy: Type = { tag: "Record", fields: inputTy.fields.filter((f) => f.name !== field), rest: inputTy.rest };
 
   // Bool is a builtin primitive but semantically a variant True | False
   const boolCtors = [
@@ -1269,7 +1283,7 @@ function checkCaseField(
           errors.push({ code: "E_FIELD_COLLISION", message: `case .${field}: payload field '${rhoF.name}' of '${branch.ctor}' collides with context row`, sourceId });
         }
       }
-      branchInputTy = { tag: "Record", fields: [...piTy.fields, ...contextTy.fields], rest: null };
+      branchInputTy = { tag: "Record", fields: [...piTy.fields, ...contextTy.fields], rest: contextTy.rest };
     }
 
     const handlerR = checkCaseFieldHandler(branch.handler, branchInputTy, contextTy, env, sourceId);
@@ -1444,8 +1458,9 @@ function checkOver(
   const newFieldTy = typedTransform.morphTy.output;
   const eff = typedTransform.morphTy.eff;
 
-  // Output type: same record but with `field` replaced by newFieldTy
-  const outputTy = replaceField(inputTy, field, newFieldTy);
+  // Output type: same record but with `field` replaced by newFieldTy.
+  // Named record aliases are unfolded, so the output is always an explicit Record.
+  const outputTy = replaceField(inputTy, field, newFieldTy, env);
 
   return ok(makeStep(
     { tag: "Over", field, transform: typedTransform },
@@ -1606,7 +1621,9 @@ function checkPerform(
   if (!entry) {
     return typeError(`Unknown effect operation '${qualName}'`, sourceId, "E_UNKNOWN_EFFECT");
   }
-  // Input must unify with operation's declared input type
+  // Input must unify with operation's declared input type.
+  // uR.subst is intentionally not threaded: effect op types are always concrete
+  // (resolved with empty tyVarNames), so the substitution is always empty.
   const uR = unify(entry.inputTy, inputTy);
   if (!uR.ok) {
     return typeError(
@@ -1683,14 +1700,25 @@ function checkSchemaInst(
       continue;
     }
     subst = uOut.subst; effSubst = uOut.effSubst;
-    // Effect unification
+    // Effect compatibility for schema arguments uses subsumption, not equality:
+    // a purer argument satisfies a less-pure parameter (pure ⊑ sequential).
+    // When EffVars are involved, fall back to unifyEffect for binding.
     const paramEff = applyEffSubst(param.morphTy.eff, effSubst);
-    const uEff = unifyEffect(paramEff, typedArg.morphTy.eff, effSubst);
-    if (!uEff.ok) {
-      errors.push({ code: "E_EFFECT_MISMATCH", message: `Argument '${param.name}': effect mismatch: expected ${showEffect(paramEff)}, got ${showEffect(typedArg.morphTy.eff)}`, sourceId: arg.meta.id });
-      continue;
+    const argEff   = typedArg.morphTy.eff;
+    if (typeof paramEff === "string" && typeof argEff === "string") {
+      if (effectRank(argEff) > effectRank(paramEff)) {
+        errors.push({ code: "E_EFFECT_MISMATCH", message: `Argument '${param.name}': effect mismatch: expected ${showEffect(paramEff)}, got ${showEffect(argEff)}`, sourceId: arg.meta.id });
+        continue;
+      }
+      // Subsumption holds; no EffVar to bind.
+    } else {
+      const uEff = unifyEffect(paramEff, argEff, effSubst);
+      if (!uEff.ok) {
+        errors.push({ code: "E_EFFECT_MISMATCH", message: `Argument '${param.name}': effect mismatch: expected ${showEffect(paramEff)}, got ${showEffect(argEff)}`, sourceId: arg.meta.id });
+        continue;
+      }
+      effSubst = uEff.effSubst;
     }
-    effSubst = uEff.effSubst;
     argSubst.set(param.name, typedArg);
   }
   if (errors.length > 0) return fail(errors);
@@ -1929,19 +1957,39 @@ function singleNameExpr(name: string, sourceId: SourceNodeId): Expr {
 
 type FieldLookupResult = { ok: true; ty: Type } | { ok: false; message: string };
 
-function lookupField(ty: Type, field: string, _env: CheckEnv): FieldLookupResult {
-  if (ty.tag !== "Record") return { ok: false, message: `Expected record type, got ${showType(ty)}` };
-  const f = ty.fields.find((f) => f.name === field);
+/**
+ * Unfold a Named type whose declaration has a Record body.
+ * Returns null if the type is not an unfoldable Named-Record alias.
+ */
+function unfoldNamedRecord(ty: Type, env: CheckEnv): { tag: "Record"; fields: { name: string; ty: Type }[]; rest: string | null } | null {
+  if (ty.tag !== "Named") return null;
+  const decl = env.typeDecls.get(ty.name);
+  if (!decl || decl.body.tag !== "Record") return null;
+  const fields = decl.body.fields.map((f) => {
+    let fty = f.ty;
+    for (let i = 0; i < decl.params.length; i++) {
+      fty = substTyVar(fty, decl.params[i]!, ty.args[i] ?? { tag: "TyVar", name: decl.params[i]! });
+    }
+    return { name: f.name, ty: fty };
+  });
+  return { tag: "Record", fields, rest: null };
+}
+
+function lookupField(ty: Type, field: string, env: CheckEnv): FieldLookupResult {
+  const rec = ty.tag === "Record" ? ty : unfoldNamedRecord(ty, env);
+  if (!rec) return { ok: false, message: `Expected record type, got ${showType(ty)}` };
+  const f = rec.fields.find((f) => f.name === field);
   if (!f) return { ok: false, message: `No field '${field}' in ${showType(ty)}` };
   return { ok: true, ty: f.ty };
 }
 
-function replaceField(ty: Type, field: string, newTy: Type): Type {
-  if (ty.tag !== "Record") return ty;
+function replaceField(ty: Type, field: string, newTy: Type, env?: CheckEnv): Type {
+  const rec = ty.tag === "Record" ? ty : (env ? unfoldNamedRecord(ty, env) : null);
+  if (!rec) return ty;
   return {
     tag: "Record",
-    fields: ty.fields.map((f) => f.name === field ? { name: f.name, ty: newTy } : f),
-    rest: ty.rest,
+    fields: rec.fields.map((f) => f.name === field ? { name: f.name, ty: newTy } : f),
+    rest: rec.rest,
   };
 }
 

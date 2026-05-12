@@ -127,6 +127,10 @@ export function effectJoin(a: ConcreteEffect, b: ConcreteEffect): ConcreteEffect
  * If either side is an EffVar, returns the other (treating EffVar as a
  * lower bound at join time); if both are EffVars and equal, returns the var.
  * The typechecker is responsible for resolving EffVars before elaboration.
+ *
+ * Note: the EffVar branches are dead in v1 — EffVars are rejected in def params
+ * (impl note 9.17) so only concrete effects reach this function. Once that
+ * enforcement is solid, the EffVar branches can be removed entirely.
  */
 export function effectLevelJoin(a: EffectLevel, b: EffectLevel): EffectLevel {
   if (typeof a === "string" && typeof b === "string") {

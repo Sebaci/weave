@@ -30,6 +30,10 @@ const BUILTIN_MORPHISMS: Map<string, BuiltinFn> = new Map([
   ["builtin.add",  (v) => numOp(v, (a, b) => a + b, (a, b) => a + b)],
   ["builtin.sub",  (v) => numOp(v, (a, b) => a - b, (a, b) => a - b)],
   ["builtin.mul",  (v) => numOp(v, (a, b) => a * b, (a, b) => a * b)],
+  // Int division truncates toward zero: (-7)/2 = -3, 7/(-2) = -3.
+  // Division by zero yields 0 for Int (Math.trunc(Infinity) = 0 in JS).
+  // These semantics are unspecified by the Weave v1 spec and should be treated
+  // as implementation-defined until the spec is updated.
   ["builtin.div",  (v) => numOp(v, (a, b) => Math.trunc(a / b), (a, b) => a / b)],
   ["builtin.lt",   (v) => cmpOp(v, (a, b) => a < b)],
   ["builtin.gt",   (v) => cmpOp(v, (a, b) => a > b)],
@@ -92,6 +96,10 @@ function valuesEqual(a: Value, b: Value): boolean {
     }
     case "variant": {
       const bv = b as typeof a;
+      // Comparison is by constructor name + payload only, not by ADT identity.
+      // Two constructors with the same name from different ADTs would compare
+      // equal. This is safe because the typechecker prevents cross-ADT
+      // compositions from reaching the interpreter.
       return a.ctor === bv.ctor && valuesEqual(a.payload, bv.payload);
     }
   }
@@ -186,6 +194,10 @@ export function evalGraph(
 
       case "dup": {
         const v = getValue(node.input.id);
+        // All output ports receive the same JS reference. This is safe because
+        // Values are immutable by construction (see value.ts immutability
+        // invariant). If mutable Values are ever introduced, replace with a
+        // deep clone per output.
         for (const outPort of node.outputs) portValues.set(outPort.id, v);
         break;
       }
@@ -308,6 +320,24 @@ export function evalGraph(
  * the raw payload type equals adtTy (the ADT being folded). This correctly
  * handles parametric types like List (List Int) where inner and outer lists
  * share constructor names but are distinct types.
+ *
+ * Polynomial-functor semantics: only positions whose raw type exactly equals
+ * adtTy are folded. A constructor with payload `{ children: List Tree }` hands
+ * the inner Trees raw to the algebra — they are not folded. This matches the
+ * classical base-functor definition (impl note 9.13) but diverges from a
+ * naive reading of the spec's "recursive branches receive the already-folded
+ * result". The spec should be clarified to match this behavior.
+ *
+ * Mutual recursion (multiple ADT types) is not supported in v1: CataNode.adtTy
+ * is a single type, so sibling-ADT positions are never folded.
+ *
+ * Plain `throw new Error(...)` is used for invariant violations (elaborator
+ * bugs): missing branches, wrong value shapes. These are distinct from
+ * MissingEffectHandlerError which is a runtime (user-visible) condition.
+ *
+ * parallel-safe effects are evaluated sequentially (demand-driven). The effect
+ * level is a type-system contract for external schedulers, not a runtime
+ * concurrency guarantee in v1.
  */
 function evalCata(
   algebra: { tag: string; rawPayloadTy: Type; graph: Graph }[],

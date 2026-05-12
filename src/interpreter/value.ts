@@ -5,6 +5,11 @@
  * structural tag. No closures or function values exist at runtime —
  * higher-order defs are handled at the schema-instantiation level before
  * interpretation.
+ *
+ * Immutability invariant: Values must never be mutated after construction.
+ * DupNode shares the same Value reference across all its output ports; any
+ * in-place mutation would corrupt aliased consumers. Constructors below
+ * allocate fresh Maps/objects — callers must not mutate them afterwards.
  */
 
 export type Value =

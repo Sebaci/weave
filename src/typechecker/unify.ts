@@ -251,10 +251,10 @@ export function unifyEffect(a: EffectLevel, b: EffectLevel, effSubst: EffSubst):
 
   if (typeof ra === "string" && typeof rb === "string") {
     if (ra === rb) return { ok: true, effSubst };
-    // When unifying two concrete effects that differ, take the join.
-    // This happens when a polymorphic effect variable is instantiated:
-    // the join is a sound upper bound.
-    return { ok: true, effSubst };
+    // Concrete effects are unified by equality, not subsumption. Mismatching
+    // concrete effects in Arrow types is a type error; join is computed by
+    // effectJoin at the call site (checkDef, checkSchemaInst), not here.
+    return { ok: false, message: `Effect mismatch: cannot unify '${ra}' with '${rb}'` };
   }
   if (typeof ra !== "string" && typeof rb === "string") {
     // ra is EffVar — bind it to rb
@@ -271,9 +271,12 @@ export function unifyEffect(a: EffectLevel, b: EffectLevel, effSubst: EffSubst):
   // Both EffVar
   if (typeof ra !== "string" && typeof rb !== "string") {
     if (ra.name === rb.name) return { ok: true, effSubst };
-    // Bind ra to rb (arbitrary choice; both are uninstantiated)
+    // Bind both to "pure" symmetrically. EffVars are rejected in v1 def params
+    // (impl note 9.17), so this branch is unreachable in practice. Binding both
+    // ensures they are equated rather than leaving one unresolved.
     const es2 = new Map(effSubst);
-    es2.set(ra.name, effSubst.get(rb.name) ?? "pure");
+    es2.set(ra.name, "pure");
+    es2.set(rb.name, "pure");
     return { ok: true, effSubst: es2 };
   }
   return { ok: false, message: `Cannot unify effects ${showEffect(a)} and ${showEffect(b)}` };
