@@ -683,8 +683,12 @@ function elabCaseFieldBranchHandler(
   const useCounts = countUsesInTypedExpr(handler.body, allBinders.map((b) => b.name));
   const locals    = new Map<string, PortId[]>();
 
-  if (allBinders.length > 1) {
-    const dupOuts = Array.from({ length: allBinders.length }, () => mkPort(branch.payloadTy));
+  // When binders are present, always use a DupNode so the body gets its own
+  // unconsumed copy of the input (the last DupNode output). This prevents the
+  // body's first step from double-consuming the handler inPort.
+  let bodyInputPortId: PortId = inPort.id; // default when no binders
+  if (allBinders.length > 0) {
+    const dupOuts = Array.from({ length: allBinders.length + 1 }, () => mkPort(branch.payloadTy));
     const dupNode: DupNode = {
       kind: "dup",
       id: freshNodeId(), effect: "pure",
@@ -708,30 +712,20 @@ function elabCaseFieldBranchHandler(
       const ports = allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId);
       if (ports.length > 0) locals.set(binder.name, ports);
     }
-  } else if (allBinders.length === 1) {
-    const binder  = allBinders[0]!;
-    const projOut = mkPort(binder.ty);
-    const projNode: ProjNode = {
-      kind: "proj", field: binder.name,
-      id: freshNodeId(), effect: "pure",
-      input: inPort, output: projOut,
-      provenance: [prov(srcId, "handler-proj")],
-    };
-    branchBuilder.addNode(projNode);
-    locals.set(binder.name, allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId));
+    bodyInputPortId = dupOuts[allBinders.length]!.id;
   }
-  // allBinders.length === 0: empty context row; body uses no locals from ρ
+  // allBinders.length === 0: body uses inPort.id directly (nothing pre-consumed)
 
   const branchCtx: ElabContext = {
     ...ctx,
     builder:    branchBuilder,
-    inputPort:  inPort.id,
+    inputPort:  bodyInputPortId,
     inputType:  branch.payloadTy,
     locals,
     sourceId:   srcId,
   };
 
-  const outPortId = elabExpr(handler.body, inPort.id, branchCtx);
+  const outPortId = elabExpr(handler.body, bodyInputPortId, branchCtx);
   const outPort   = mkPort(outputTy);
   branchBuilder.wire(outPortId, outPort.id);
   const g = branchBuilder.build(inPort, outPort, [prov(srcId, "branch-handler")]);
@@ -818,11 +812,12 @@ function elabBranchHandler(
   const useCounts = countUsesInTypedExpr(handler.body, handler.binders.map((b) => b.name));
   const locals    = new Map<string, PortId[]>();
 
-  // We need to DupNode the input for all binders (each needs a separate ProjNode input)
+  // Always use a DupNode when there are binders so the body gets its own
+  // unconsumed copy of the input (last DupNode output), preventing double-consumption.
   const nonWildBinders = handler.binders;
-  if (nonWildBinders.length > 1) {
-    // Dup the handler input n times (once per binder)
-    const dupOuts = Array.from({ length: nonWildBinders.length }, () => mkPort(branch.payloadTy));
+  let bodyInputPortId2: PortId = inPort.id; // default when no binders
+  if (nonWildBinders.length > 0) {
+    const dupOuts = Array.from({ length: nonWildBinders.length + 1 }, () => mkPort(branch.payloadTy));
     const dupNode: DupNode = {
       kind: "dup",
       id: freshNodeId(), effect: "pure",
@@ -846,30 +841,19 @@ function elabBranchHandler(
       const ports = allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId);
       if (ports.length > 0) locals.set(binder.name, ports);
     }
-  } else if (nonWildBinders.length === 1) {
-    const binder  = nonWildBinders[0]!;
-    const projIn  = inPort; // use the handler inPort directly
-    const projOut = mkPort(binder.fieldTy);
-    const projNode: ProjNode = {
-      kind: "proj", field: binder.name,
-      id: freshNodeId(), effect: "pure",
-      input: projIn, output: projOut,
-      provenance: [prov(srcId, "handler-proj")],
-    };
-    branchBuilder.addNode(projNode);
-    locals.set(binder.name, allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId));
+    bodyInputPortId2 = dupOuts[nonWildBinders.length]!.id;
   }
 
   const branchCtx: ElabContext = {
     ...ctx,
     builder:    branchBuilder,
-    inputPort:  inPort.id,
+    inputPort:  bodyInputPortId2,
     inputType:  branch.payloadTy,
     locals,
     sourceId:   srcId,
   };
 
-  const outPortId = elabExpr(handler.body, inPort.id, branchCtx);
+  const outPortId = elabExpr(handler.body, bodyInputPortId2, branchCtx);
   const outPort   = mkPort(outputTy);
   branchBuilder.wire(outPortId, outPort.id);
   const g = branchBuilder.build(inPort, outPort, [prov(srcId, "branch-handler")]);

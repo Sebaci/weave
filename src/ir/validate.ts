@@ -35,6 +35,9 @@ export function validateGraph(graph: Graph): ValidationResult {
   // IR-4b: Per-node effect-level shapes match spec.
   checkNodeEffectShape(graph, errors);
 
+  // IR-4c: CaseNode/CataNode declared effect equals join of branch graph effects.
+  checkBranchEffectConsistency(graph, errors);
+
   // IR-6: CataNode algebra branch ports use substituted types.
   checkCataSubstitution(graph, errors);
 
@@ -166,16 +169,34 @@ function checkNodeConnectivity(graph: Graph, errors: ValidationError[]) {
 // ---------------------------------------------------------------------------
 
 function checkNoImplicitSharing(graph: Graph, errors: ValidationError[]) {
-  // Every port — including DupNode outputs — must have at most one outgoing wire.
-  const outgoing = new Map<PortId, number>();
+  // A port may have at most one consumer total — either one outgoing wire or one
+  // direct node-input reference, but not both, and not two of either.
+  // DupNode outputs are subject to the same rule: each output feeds exactly one consumer.
+  const consumeCount = new Map<PortId, number>();
+
   for (const wire of graph.wires) {
-    outgoing.set(wire.from, (outgoing.get(wire.from) ?? 0) + 1);
+    consumeCount.set(wire.from, (consumeCount.get(wire.from) ?? 0) + 1);
   }
-  for (const [portId, count] of outgoing) {
+
+  // Also count direct port-sharing: a node input whose port id equals another
+  // node's output port id (or the graph's inPort id).
+  const producedPortIds = new Set<PortId>([
+    graph.inPort.id,
+    ...graph.nodes.flatMap((n) => nodeOutputPorts(n).map((p) => p.id)),
+  ]);
+  for (const node of graph.nodes) {
+    for (const p of nodeInputPorts(node)) {
+      if (producedPortIds.has(p.id)) {
+        consumeCount.set(p.id, (consumeCount.get(p.id) ?? 0) + 1);
+      }
+    }
+  }
+
+  for (const [portId, count] of consumeCount) {
     if (count > 1) {
       errors.push({
         rule:    "IR-2",
-        message: `Port '${portId}' has ${count} outgoing wires (implicit sharing)`,
+        message: `Port '${portId}' has ${count} consumers (implicit sharing — use DupNode)`,
       });
     }
   }
@@ -217,6 +238,35 @@ function checkEffectConsistency(graph: Graph, errors: ValidationError[]) {
       rule:    "IR-4",
       message: `Graph.effect is '${graph.effect}' but join of node effects is '${joined}'`,
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IR-4c: CaseNode/CataNode declared effect matches branch graph effect join
+// ---------------------------------------------------------------------------
+
+function checkBranchEffectConsistency(graph: Graph, errors: ValidationError[]) {
+  for (const node of graph.nodes) {
+    if (node.kind === "case") {
+      let joined: ConcreteEffect = "pure";
+      for (const b of node.branches) joined = effectJoin(joined, b.graph.effect);
+      if (joined !== (node.effect as ConcreteEffect)) {
+        errors.push({
+          rule:    "IR-4c",
+          message: `CaseNode '${node.id}' declared effect '${node.effect}' but branch join is '${joined}'`,
+        });
+      }
+    }
+    if (node.kind === "cata") {
+      let joined: ConcreteEffect = "pure";
+      for (const b of node.algebra) joined = effectJoin(joined, b.graph.effect);
+      if (joined !== (node.effect as ConcreteEffect)) {
+        errors.push({
+          rule:    "IR-4c",
+          message: `CataNode '${node.id}' declared effect '${node.effect}' but algebra join is '${joined}'`,
+        });
+      }
+    }
   }
 }
 

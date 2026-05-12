@@ -363,6 +363,10 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
                     "label": "port[1]",
                     "ty": "{ value: Int, label: Text }",
                   },
+                  {
+                    "label": "port[2]",
+                    "ty": "{ value: Int, label: Text }",
+                  },
                 ],
                 "provenance": true,
               },
@@ -370,13 +374,13 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
                 "effect": "pure",
                 "field": "value",
                 "input": {
-                  "label": "port[2]",
+                  "label": "port[3]",
                   "ty": "{ value: Int, label: Text }",
                 },
                 "kind": "proj",
                 "label": "node[1]",
                 "output": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -384,13 +388,13 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "kind": "drop",
                 "label": "node[2]",
                 "output": {
-                  "label": "port[4]",
+                  "label": "port[5]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -399,14 +403,28 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
                 "effect": "pure",
                 "field": "label",
                 "input": {
-                  "label": "port[5]",
+                  "label": "port[6]",
                   "ty": "{ value: Int, label: Text }",
                 },
                 "kind": "proj",
                 "label": "node[3]",
                 "output": {
-                  "label": "port[6]",
+                  "label": "port[7]",
                   "ty": "Text",
+                },
+                "provenance": true,
+              },
+              {
+                "effect": "pure",
+                "input": {
+                  "label": "port[8]",
+                  "ty": "{ value: Int, label: Text }",
+                },
+                "kind": "drop",
+                "label": "node[4]",
+                "output": {
+                  "label": "port[9]",
+                  "ty": "Unit",
                 },
                 "provenance": true,
               },
@@ -419,14 +437,18 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
             "wires": [
               {
                 "from": "port[0]",
-                "to": "port[2]",
+                "to": "port[3]",
               },
               {
                 "from": "port[1]",
-                "to": "port[5]",
+                "to": "port[6]",
               },
               {
-                "from": "port[6]",
+                "from": "port[2]",
+                "to": "port[8]",
+              },
+              {
+                "from": "port[7]",
                 "to": "out",
               },
             ],
@@ -459,6 +481,10 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
                     "label": "port[1]",
                     "ty": "{ code: Int, label: Text }",
                   },
+                  {
+                    "label": "port[2]",
+                    "ty": "{ code: Int, label: Text }",
+                  },
                 ],
                 "provenance": true,
               },
@@ -466,13 +492,13 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
                 "effect": "pure",
                 "field": "code",
                 "input": {
-                  "label": "port[2]",
+                  "label": "port[3]",
                   "ty": "{ code: Int, label: Text }",
                 },
                 "kind": "proj",
                 "label": "node[1]",
                 "output": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -480,13 +506,13 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "kind": "drop",
                 "label": "node[2]",
                 "output": {
-                  "label": "port[4]",
+                  "label": "port[5]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -495,14 +521,28 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
                 "effect": "pure",
                 "field": "label",
                 "input": {
-                  "label": "port[5]",
+                  "label": "port[6]",
                   "ty": "{ code: Int, label: Text }",
                 },
                 "kind": "proj",
                 "label": "node[3]",
                 "output": {
-                  "label": "port[6]",
+                  "label": "port[7]",
                   "ty": "Text",
+                },
+                "provenance": true,
+              },
+              {
+                "effect": "pure",
+                "input": {
+                  "label": "port[8]",
+                  "ty": "{ code: Int, label: Text }",
+                },
+                "kind": "drop",
+                "label": "node[4]",
+                "output": {
+                  "label": "port[9]",
+                  "ty": "Unit",
                 },
                 "provenance": true,
               },
@@ -515,14 +555,18 @@ exports[`case .field: handleResult > handleResult graph shape 1`] = `
             "wires": [
               {
                 "from": "port[0]",
-                "to": "port[2]",
+                "to": "port[3]",
               },
               {
                 "from": "port[1]",
-                "to": "port[5]",
+                "to": "port[6]",
               },
               {
-                "from": "port[6]",
+                "from": "port[2]",
+                "to": "port[8]",
+              },
+              {
+                "from": "port[7]",
                 "to": "out",
               },
             ],
@@ -602,6 +646,10 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
                     "label": "port[1]",
                     "ty": "{ x: Int, y: Int }",
                   },
+                  {
+                    "label": "port[2]",
+                    "ty": "{ x: Int, y: Int }",
+                  },
                 ],
                 "provenance": true,
               },
@@ -609,13 +657,13 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
                 "effect": "pure",
                 "field": "x",
                 "input": {
-                  "label": "port[2]",
+                  "label": "port[3]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "proj",
                 "label": "node[1]",
                 "output": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -624,13 +672,13 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
                 "effect": "pure",
                 "field": "y",
                 "input": {
-                  "label": "port[4]",
+                  "label": "port[5]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "proj",
                 "label": "node[2]",
                 "output": {
-                  "label": "port[5]",
+                  "label": "port[6]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -638,18 +686,18 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[6]",
+                  "label": "port[7]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "dup",
                 "label": "node[3]",
                 "outputs": [
                   {
-                    "label": "port[7]",
+                    "label": "port[8]",
                     "ty": "{ x: Int, y: Int }",
                   },
                   {
-                    "label": "port[8]",
+                    "label": "port[9]",
                     "ty": "{ x: Int, y: Int }",
                   },
                 ],
@@ -658,13 +706,13 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[9]",
+                  "label": "port[10]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "drop",
                 "label": "node[4]",
                 "output": {
-                  "label": "port[10]",
+                  "label": "port[11]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -672,13 +720,13 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[11]",
+                  "label": "port[12]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "drop",
                 "label": "node[5]",
                 "output": {
-                  "label": "port[12]",
+                  "label": "port[13]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -689,14 +737,14 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
                   {
                     "label": "x",
                     "port": {
-                      "label": "port[5]",
+                      "label": "port[6]",
                       "ty": "Int",
                     },
                   },
                   {
                     "label": "y",
                     "port": {
-                      "label": "port[3]",
+                      "label": "port[4]",
                       "ty": "Int",
                     },
                   },
@@ -704,7 +752,7 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
                 "kind": "tuple",
                 "label": "node[6]",
                 "output": {
-                  "label": "port[13]",
+                  "label": "port[14]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "provenance": true,
@@ -714,13 +762,13 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
                 "ctorName": "Point",
                 "effect": "pure",
                 "input": {
-                  "label": "port[14]",
+                  "label": "port[15]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "ctor",
                 "label": "node[7]",
                 "output": {
-                  "label": "port[15]",
+                  "label": "port[16]",
                   "ty": "Point",
                 },
                 "provenance": true,
@@ -734,30 +782,30 @@ exports[`fanout: Point transformations > reflect graph shape 1`] = `
             "wires": [
               {
                 "from": "port[0]",
-                "to": "port[2]",
+                "to": "port[3]",
               },
               {
                 "from": "port[1]",
-                "to": "port[4]",
+                "to": "port[5]",
               },
               {
-                "from": "in",
-                "to": "port[6]",
-              },
-              {
-                "from": "port[7]",
-                "to": "port[9]",
+                "from": "port[2]",
+                "to": "port[7]",
               },
               {
                 "from": "port[8]",
-                "to": "port[11]",
+                "to": "port[10]",
               },
               {
-                "from": "port[13]",
-                "to": "port[14]",
+                "from": "port[9]",
+                "to": "port[12]",
               },
               {
-                "from": "port[15]",
+                "from": "port[14]",
+                "to": "port[15]",
+              },
+              {
+                "from": "port[16]",
                 "to": "out",
               },
             ],
@@ -898,6 +946,10 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                     "label": "port[1]",
                     "ty": "{ x: Int, y: Int }",
                   },
+                  {
+                    "label": "port[2]",
+                    "ty": "{ x: Int, y: Int }",
+                  },
                 ],
                 "provenance": true,
               },
@@ -905,13 +957,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "effect": "pure",
                 "field": "x",
                 "input": {
-                  "label": "port[2]",
+                  "label": "port[3]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "proj",
                 "label": "node[1]",
                 "output": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -920,13 +972,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "effect": "pure",
                 "field": "y",
                 "input": {
-                  "label": "port[4]",
+                  "label": "port[5]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "proj",
                 "label": "node[2]",
                 "output": {
-                  "label": "port[5]",
+                  "label": "port[6]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -934,18 +986,18 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[6]",
+                  "label": "port[7]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "dup",
                 "label": "node[3]",
                 "outputs": [
                   {
-                    "label": "port[7]",
+                    "label": "port[8]",
                     "ty": "{ x: Int, y: Int }",
                   },
                   {
-                    "label": "port[8]",
+                    "label": "port[9]",
                     "ty": "{ x: Int, y: Int }",
                   },
                 ],
@@ -954,18 +1006,18 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[9]",
+                  "label": "port[10]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "dup",
                 "label": "node[4]",
                 "outputs": [
                   {
-                    "label": "port[10]",
+                    "label": "port[11]",
                     "ty": "{ x: Int, y: Int }",
                   },
                   {
-                    "label": "port[11]",
+                    "label": "port[12]",
                     "ty": "{ x: Int, y: Int }",
                   },
                 ],
@@ -974,13 +1026,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[12]",
+                  "label": "port[13]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "drop",
                 "label": "node[5]",
                 "output": {
-                  "label": "port[13]",
+                  "label": "port[14]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -988,13 +1040,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[14]",
+                  "label": "port[15]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "drop",
                 "label": "node[6]",
                 "output": {
-                  "label": "port[15]",
+                  "label": "port[16]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -1004,7 +1056,7 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "kind": "const",
                 "label": "node[7]",
                 "output": {
-                  "label": "port[16]",
+                  "label": "port[17]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1019,14 +1071,14 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                   {
                     "label": "l",
                     "port": {
-                      "label": "port[3]",
+                      "label": "port[4]",
                       "ty": "Int",
                     },
                   },
                   {
                     "label": "r",
                     "port": {
-                      "label": "port[16]",
+                      "label": "port[17]",
                       "ty": "Int",
                     },
                   },
@@ -1034,7 +1086,7 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "kind": "tuple",
                 "label": "node[8]",
                 "output": {
-                  "label": "port[17]",
+                  "label": "port[18]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "provenance": true,
@@ -1043,13 +1095,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "defId": "builtin.add",
                 "effect": "pure",
                 "input": {
-                  "label": "port[18]",
+                  "label": "port[19]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "kind": "ref",
                 "label": "node[9]",
                 "output": {
-                  "label": "port[19]",
+                  "label": "port[20]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1057,18 +1109,18 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[20]",
+                  "label": "port[21]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "dup",
                 "label": "node[10]",
                 "outputs": [
                   {
-                    "label": "port[21]",
+                    "label": "port[22]",
                     "ty": "{ x: Int, y: Int }",
                   },
                   {
-                    "label": "port[22]",
+                    "label": "port[23]",
                     "ty": "{ x: Int, y: Int }",
                   },
                 ],
@@ -1077,13 +1129,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[23]",
+                  "label": "port[24]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "drop",
                 "label": "node[11]",
                 "output": {
-                  "label": "port[24]",
+                  "label": "port[25]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -1091,13 +1143,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[25]",
+                  "label": "port[26]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "drop",
                 "label": "node[12]",
                 "output": {
-                  "label": "port[26]",
+                  "label": "port[27]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -1107,7 +1159,7 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "kind": "const",
                 "label": "node[13]",
                 "output": {
-                  "label": "port[27]",
+                  "label": "port[28]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1122,14 +1174,14 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                   {
                     "label": "l",
                     "port": {
-                      "label": "port[5]",
+                      "label": "port[6]",
                       "ty": "Int",
                     },
                   },
                   {
                     "label": "r",
                     "port": {
-                      "label": "port[27]",
+                      "label": "port[28]",
                       "ty": "Int",
                     },
                   },
@@ -1137,7 +1189,7 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "kind": "tuple",
                 "label": "node[14]",
                 "output": {
-                  "label": "port[28]",
+                  "label": "port[29]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "provenance": true,
@@ -1146,13 +1198,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "defId": "builtin.add",
                 "effect": "pure",
                 "input": {
-                  "label": "port[29]",
+                  "label": "port[30]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "kind": "ref",
                 "label": "node[15]",
                 "output": {
-                  "label": "port[30]",
+                  "label": "port[31]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1163,14 +1215,14 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                   {
                     "label": "x",
                     "port": {
-                      "label": "port[19]",
+                      "label": "port[20]",
                       "ty": "Int",
                     },
                   },
                   {
                     "label": "y",
                     "port": {
-                      "label": "port[30]",
+                      "label": "port[31]",
                       "ty": "Int",
                     },
                   },
@@ -1178,7 +1230,7 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "kind": "tuple",
                 "label": "node[16]",
                 "output": {
-                  "label": "port[31]",
+                  "label": "port[32]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "provenance": true,
@@ -1188,13 +1240,13 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
                 "ctorName": "Point",
                 "effect": "pure",
                 "input": {
-                  "label": "port[32]",
+                  "label": "port[33]",
                   "ty": "{ x: Int, y: Int }",
                 },
                 "kind": "ctor",
                 "label": "node[17]",
                 "output": {
-                  "label": "port[33]",
+                  "label": "port[34]",
                   "ty": "Point",
                 },
                 "provenance": true,
@@ -1208,54 +1260,54 @@ exports[`fanout: Point transformations > translate graph shape 1`] = `
             "wires": [
               {
                 "from": "port[0]",
-                "to": "port[2]",
+                "to": "port[3]",
               },
               {
                 "from": "port[1]",
-                "to": "port[4]",
+                "to": "port[5]",
               },
               {
-                "from": "in",
-                "to": "port[6]",
-              },
-              {
-                "from": "port[7]",
-                "to": "port[9]",
-              },
-              {
-                "from": "port[10]",
-                "to": "port[12]",
-              },
-              {
-                "from": "port[11]",
-                "to": "port[14]",
-              },
-              {
-                "from": "port[17]",
-                "to": "port[18]",
+                "from": "port[2]",
+                "to": "port[7]",
               },
               {
                 "from": "port[8]",
-                "to": "port[20]",
+                "to": "port[10]",
               },
               {
-                "from": "port[21]",
-                "to": "port[23]",
+                "from": "port[11]",
+                "to": "port[13]",
+              },
+              {
+                "from": "port[12]",
+                "to": "port[15]",
+              },
+              {
+                "from": "port[18]",
+                "to": "port[19]",
+              },
+              {
+                "from": "port[9]",
+                "to": "port[21]",
               },
               {
                 "from": "port[22]",
-                "to": "port[25]",
+                "to": "port[24]",
               },
               {
-                "from": "port[28]",
-                "to": "port[29]",
+                "from": "port[23]",
+                "to": "port[26]",
               },
               {
-                "from": "port[31]",
-                "to": "port[32]",
+                "from": "port[29]",
+                "to": "port[30]",
               },
               {
-                "from": "port[33]",
+                "from": "port[32]",
+                "to": "port[33]",
+              },
+              {
+                "from": "port[34]",
                 "to": "out",
               },
             ],
@@ -1392,6 +1444,10 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                     "label": "port[1]",
                     "ty": "{ head: Int, tail: Int }",
                   },
+                  {
+                    "label": "port[2]",
+                    "ty": "{ head: Int, tail: Int }",
+                  },
                 ],
                 "provenance": true,
               },
@@ -1399,13 +1455,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "effect": "pure",
                 "field": "head",
                 "input": {
-                  "label": "port[2]",
+                  "label": "port[3]",
                   "ty": "{ head: Int, tail: Int }",
                 },
                 "kind": "proj",
                 "label": "node[1]",
                 "output": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1413,18 +1469,18 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[3]",
+                  "label": "port[4]",
                   "ty": "Int",
                 },
                 "kind": "dup",
                 "label": "node[2]",
                 "outputs": [
                   {
-                    "label": "port[4]",
+                    "label": "port[5]",
                     "ty": "Int",
                   },
                   {
-                    "label": "port[5]",
+                    "label": "port[6]",
                     "ty": "Int",
                   },
                 ],
@@ -1434,13 +1490,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "effect": "pure",
                 "field": "tail",
                 "input": {
-                  "label": "port[6]",
+                  "label": "port[7]",
                   "ty": "{ head: Int, tail: Int }",
                 },
                 "kind": "proj",
                 "label": "node[3]",
                 "output": {
-                  "label": "port[7]",
+                  "label": "port[8]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1448,18 +1504,18 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[8]",
+                  "label": "port[9]",
                   "ty": "{ head: Int, tail: Int }",
                 },
                 "kind": "dup",
                 "label": "node[4]",
                 "outputs": [
                   {
-                    "label": "port[9]",
+                    "label": "port[10]",
                     "ty": "{ head: Int, tail: Int }",
                   },
                   {
-                    "label": "port[10]",
+                    "label": "port[11]",
                     "ty": "{ head: Int, tail: Int }",
                   },
                 ],
@@ -1468,13 +1524,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[11]",
+                  "label": "port[12]",
                   "ty": "{ head: Int, tail: Int }",
                 },
                 "kind": "drop",
                 "label": "node[5]",
                 "output": {
-                  "label": "port[12]",
+                  "label": "port[13]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -1482,13 +1538,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[13]",
+                  "label": "port[14]",
                   "ty": "{ head: Int, tail: Int }",
                 },
                 "kind": "drop",
                 "label": "node[6]",
                 "output": {
-                  "label": "port[14]",
+                  "label": "port[15]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -1499,14 +1555,14 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                   {
                     "label": "l",
                     "port": {
-                      "label": "port[4]",
+                      "label": "port[5]",
                       "ty": "Int",
                     },
                   },
                   {
                     "label": "r",
                     "port": {
-                      "label": "port[5]",
+                      "label": "port[6]",
                       "ty": "Int",
                     },
                   },
@@ -1514,7 +1570,7 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "kind": "tuple",
                 "label": "node[7]",
                 "output": {
-                  "label": "port[15]",
+                  "label": "port[16]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "provenance": true,
@@ -1523,13 +1579,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "defId": "builtin.add",
                 "effect": "pure",
                 "input": {
-                  "label": "port[16]",
+                  "label": "port[17]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "kind": "ref",
                 "label": "node[8]",
                 "output": {
-                  "label": "port[17]",
+                  "label": "port[18]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1540,14 +1596,14 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                   {
                     "label": "doubled",
                     "port": {
-                      "label": "port[17]",
+                      "label": "port[18]",
                       "ty": "Int",
                     },
                   },
                   {
                     "label": "tail",
                     "port": {
-                      "label": "port[7]",
+                      "label": "port[8]",
                       "ty": "Int",
                     },
                   },
@@ -1555,7 +1611,7 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "kind": "tuple",
                 "label": "node[9]",
                 "output": {
-                  "label": "port[18]",
+                  "label": "port[19]",
                   "ty": "{ doubled: Int, tail: Int }",
                 },
                 "provenance": true,
@@ -1563,22 +1619,22 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[18]",
+                  "label": "port[19]",
                   "ty": "{ doubled: Int, tail: Int }",
                 },
                 "kind": "dup",
                 "label": "node[10]",
                 "outputs": [
                   {
-                    "label": "port[19]",
-                    "ty": "{ doubled: Int, tail: Int }",
-                  },
-                  {
                     "label": "port[20]",
                     "ty": "{ doubled: Int, tail: Int }",
                   },
                   {
                     "label": "port[21]",
+                    "ty": "{ doubled: Int, tail: Int }",
+                  },
+                  {
+                    "label": "port[22]",
                     "ty": "{ doubled: Int, tail: Int }",
                   },
                 ],
@@ -1588,13 +1644,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "effect": "pure",
                 "field": "doubled",
                 "input": {
-                  "label": "port[22]",
+                  "label": "port[23]",
                   "ty": "{ doubled: Int, tail: Int }",
                 },
                 "kind": "proj",
                 "label": "node[11]",
                 "output": {
-                  "label": "port[23]",
+                  "label": "port[24]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1603,13 +1659,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "effect": "pure",
                 "field": "tail",
                 "input": {
-                  "label": "port[24]",
+                  "label": "port[25]",
                   "ty": "{ doubled: Int, tail: Int }",
                 },
                 "kind": "proj",
                 "label": "node[12]",
                 "output": {
-                  "label": "port[25]",
+                  "label": "port[26]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1617,18 +1673,18 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[26]",
+                  "label": "port[27]",
                   "ty": "{ doubled: Int, tail: Int }",
                 },
                 "kind": "dup",
                 "label": "node[13]",
                 "outputs": [
                   {
-                    "label": "port[27]",
+                    "label": "port[28]",
                     "ty": "{ doubled: Int, tail: Int }",
                   },
                   {
-                    "label": "port[28]",
+                    "label": "port[29]",
                     "ty": "{ doubled: Int, tail: Int }",
                   },
                 ],
@@ -1637,13 +1693,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[29]",
+                  "label": "port[30]",
                   "ty": "{ doubled: Int, tail: Int }",
                 },
                 "kind": "drop",
                 "label": "node[14]",
                 "output": {
-                  "label": "port[30]",
+                  "label": "port[31]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -1651,13 +1707,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
               {
                 "effect": "pure",
                 "input": {
-                  "label": "port[31]",
+                  "label": "port[32]",
                   "ty": "{ doubled: Int, tail: Int }",
                 },
                 "kind": "drop",
                 "label": "node[15]",
                 "output": {
-                  "label": "port[32]",
+                  "label": "port[33]",
                   "ty": "Unit",
                 },
                 "provenance": true,
@@ -1668,14 +1724,14 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                   {
                     "label": "l",
                     "port": {
-                      "label": "port[23]",
+                      "label": "port[24]",
                       "ty": "Int",
                     },
                   },
                   {
                     "label": "r",
                     "port": {
-                      "label": "port[25]",
+                      "label": "port[26]",
                       "ty": "Int",
                     },
                   },
@@ -1683,7 +1739,7 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "kind": "tuple",
                 "label": "node[16]",
                 "output": {
-                  "label": "port[33]",
+                  "label": "port[34]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "provenance": true,
@@ -1692,13 +1748,13 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
                 "defId": "builtin.add",
                 "effect": "pure",
                 "input": {
-                  "label": "port[34]",
+                  "label": "port[35]",
                   "ty": "{ l: Int, r: Int }",
                 },
                 "kind": "ref",
                 "label": "node[17]",
                 "output": {
-                  "label": "port[35]",
+                  "label": "port[36]",
                   "ty": "Int",
                 },
                 "provenance": true,
@@ -1712,54 +1768,54 @@ exports[`fold + let: sumOfDoubles > sumOfDoubles graph shape 1`] = `
             "wires": [
               {
                 "from": "port[0]",
-                "to": "port[2]",
+                "to": "port[3]",
               },
               {
                 "from": "port[1]",
-                "to": "port[6]",
+                "to": "port[7]",
               },
               {
-                "from": "in",
-                "to": "port[8]",
-              },
-              {
-                "from": "port[9]",
-                "to": "port[11]",
+                "from": "port[2]",
+                "to": "port[9]",
               },
               {
                 "from": "port[10]",
-                "to": "port[13]",
+                "to": "port[12]",
               },
               {
-                "from": "port[15]",
-                "to": "port[16]",
+                "from": "port[11]",
+                "to": "port[14]",
               },
               {
-                "from": "port[19]",
-                "to": "port[22]",
+                "from": "port[16]",
+                "to": "port[17]",
               },
               {
                 "from": "port[20]",
-                "to": "port[24]",
+                "to": "port[23]",
               },
               {
                 "from": "port[21]",
-                "to": "port[26]",
+                "to": "port[25]",
               },
               {
-                "from": "port[27]",
-                "to": "port[29]",
+                "from": "port[22]",
+                "to": "port[27]",
               },
               {
                 "from": "port[28]",
-                "to": "port[31]",
+                "to": "port[30]",
               },
               {
-                "from": "port[33]",
-                "to": "port[34]",
+                "from": "port[29]",
+                "to": "port[32]",
               },
               {
-                "from": "port[35]",
+                "from": "port[34]",
+                "to": "port[35]",
+              },
+              {
+                "from": "port[36]",
                 "to": "out",
               },
             ],
