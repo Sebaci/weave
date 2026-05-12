@@ -1320,33 +1320,45 @@ function allocateLocalPort(
   return dupOuts.map((p) => p.id);
 }
 
-/** Count how many times each name (as LocalRef) appears in a TypedExpr. */
+/** Count how many times each name (as LocalRef) appears in a TypedExpr.
+ *
+ * Rules:
+ *   - Case/Fold/CaseField branch handlers: do NOT recurse. Each handler
+ *     creates fresh projections from its own inPort, so outer handler ports
+ *     are not consumed inside those bodies.
+ *   - Let: each liveSet entry represents one liveFromLocals extraction from
+ *     the outer handler's queue. Recurse into rhs (elaborated in outer
+ *     context) but not body (elaborated with R' as input, not outer ports).
+ *   - Everything else: recurse normally.
+ */
 function countUsesInTypedExpr(expr: TypedExpr, names: string[]): Map<string, number> {
   const counts = new Map<string, number>(names.map((n) => [n, 0]));
+  const visitExpr = (e: TypedExpr) => e.steps.forEach(visitStep);
   const visitStep = (s: TypedStep) => {
     if (s.node.tag === "LocalRef" && counts.has(s.node.name)) {
       counts.set(s.node.name, (counts.get(s.node.name) ?? 0) + 1);
     }
     visitNode(s.node);
   };
-  const visitExpr = (e: TypedExpr) => e.steps.forEach(visitStep);
   const visitNode = (node: TypedNode) => {
     switch (node.tag) {
       case "Build":   node.fields.forEach((f) => visitExpr(f.expr)); break;
       case "Fanout":  node.fields.forEach((f) => visitExpr(f.expr)); break;
-      case "Case":      node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "CaseField": node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "Fold":      node.branches.forEach((b) => visitHandler(b.handler)); break;
-      case "Over":         visitStep(node.transform); break;
-      case "GroupedExpr":  visitExpr(node.body); break;
-      case "Let":          visitExpr(node.rhs); visitExpr(node.body); break;
-      case "SchemaInst":   [...node.argSubst.values()].forEach(visitExpr); break;
+      case "Case":
+      case "CaseField":
+      case "Fold":    break;
+      case "Let": {
+        for (const lv of node.liveSet) {
+          if (counts.has(lv.name)) counts.set(lv.name, (counts.get(lv.name) ?? 0) + 1);
+        }
+        visitExpr(node.rhs);
+        break;
+      }
+      case "Over":        visitStep(node.transform); break;
+      case "GroupedExpr": visitExpr(node.body); break;
+      case "SchemaInst":  [...node.argSubst.values()].forEach(visitExpr); break;
       default: break;
     }
-  };
-  const visitHandler = (h: TypedHandler) => {
-    if (h.tag === "Nullary") visitExpr(h.body);
-    else visitExpr(h.body);
   };
   visitExpr(expr);
   return counts;
