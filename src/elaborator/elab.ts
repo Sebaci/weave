@@ -19,7 +19,7 @@ import { isConcrete } from "../types/check.ts";
 import type {
   TypedModule, TypedDef, TypedExpr, TypedStep, TypedNode,
   TypedBranch, TypedHandler, MorphTy, OmegaEntry,
-  TypedTypeDecl,
+  TypedTypeDecl, LiveVar,
 } from "../typechecker/typed-ast.ts";
 import type { CtorInfo } from "../typechecker/env.ts";
 import type { Subst } from "../types/subst.ts";
@@ -273,6 +273,12 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
       if (!queue || queue.length === 0) {
         throw new Error(`Elaborator internal: LocalRef '${step.node.name}' not in locals`);
       }
+      // LocalRef returns a pre-projected local value and ignores the current
+      // flowing input. Drop the input unless it is already consumed elsewhere
+      // (e.g. the handler inPort used directly as a binder node's input port).
+      if (!builder.isPortConsumedAsSource(inputPortId)) {
+        liftUnit(inputPortId, step.morphTy.input, builder, srcId);
+      }
       return queue.shift()!;
     }
 
@@ -315,9 +321,12 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
     // Literal — ConstNode
     // -----------------------------------------------------------------------
     case "Literal": {
-      // norm_I Case B: if inputPortId is non-unit context, insert DropNode first.
-      // The Literal's morphTy.input is Unit by construction.
-      const droppedPort = liftUnit(inputPortId, step.morphTy.input, builder, srcId);
+      // ConstNode is unit-sourced: it ignores its input.
+      // Drop the input unless it is already consumed elsewhere (e.g. the handler
+      // inPort used directly as a binder ProjNode's input via port sharing).
+      if (!builder.isPortConsumedAsSource(inputPortId)) {
+        liftUnit(inputPortId, step.morphTy.input, builder, srcId);
+      }
       const outPort = mkPort(step.morphTy.output);
       const node: ConstNode = {
         kind: "const", value: surfaceLitToLiteral(step.node.value),
@@ -326,13 +335,6 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
         provenance: [prov(srcId)],
       };
       builder.addNode(node);
-      // ConstNode has no input port in the IR (it is unit-sourced).
-      // The droppedPort is the dangling terminal; wire it to signal consumption.
-      // In a strict IR the drop node's output is wired to nothing;
-      // it represents I -> 1 and the const is 1 -> T, composing to I -> T.
-      // We don't need an explicit wire from drop-output to const because
-      // ConstNode is implicitly unit-sourced. The drop node is the evidence.
-      void droppedPort; // used for side effect (DropNode added to builder)
       return outPort.id;
     }
 
@@ -578,8 +580,9 @@ function elabCase(
   builder.wire(inputPortId, inPort.id);
 
   const branches = step.node.branches.map((b) => ({
-    tag:   b.ctor,
-    graph: elabBranchHandler(b, step.morphTy.output, ctx, srcId),
+    tag:          b.ctor,
+    rawPayloadTy: b.rawPayloadTy,
+    graph:        elabBranchHandler(b, step.morphTy.output, ctx, srcId),
   }));
 
   let eff: ConcreteEffect = "pure";
@@ -702,7 +705,8 @@ function elabCaseFieldBranchHandler(
         provenance: [prov(srcId, "handler-proj")],
       };
       branchBuilder.addNode(projNode);
-      locals.set(binder.name, allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId));
+      const ports = allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId);
+      if (ports.length > 0) locals.set(binder.name, ports);
     }
   } else if (allBinders.length === 1) {
     const binder  = allBinders[0]!;
@@ -839,7 +843,8 @@ function elabBranchHandler(
         provenance: [prov(srcId, "handler-proj")],
       };
       branchBuilder.addNode(projNode);
-      locals.set(binder.name, allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId));
+      const ports = allocateLocalPort(projOut, useCounts.get(binder.name) ?? 1, branchBuilder, srcId);
+      if (ports.length > 0) locals.set(binder.name, ports);
     }
   } else if (nonWildBinders.length === 1) {
     const binder  = nonWildBinders[0]!;
@@ -894,23 +899,28 @@ function elabOver(
   const passthroughFields = inputType.fields.filter((f) => f.name !== field);
   const n = 1 + passthroughFields.length; // 1 for the transform branch + k passthroughs
 
-  // Dup the input n times.
-  const inPort = mkPort(inputType);
-  builder.wire(inputPortId, inPort.id);
-
-  const dupOuts = Array.from({ length: n }, () => mkPort(inputType));
-  const dupNode: DupNode = {
-    kind: "dup",
-    id: freshNodeId(), effect: "pure",
-    input: inPort, outputs: dupOuts,
-    provenance: [prov(srcId, "dup-for-over")],
-  };
-  builder.addNode(dupNode);
+  // When n=1 (no passthroughs), skip DupNode — wire directly.
+  let dupOutputIds: PortId[];
+  if (n === 1) {
+    dupOutputIds = [inputPortId];
+  } else {
+    const inPort = mkPort(inputType);
+    builder.wire(inputPortId, inPort.id);
+    const dupOuts = Array.from({ length: n }, () => mkPort(inputType));
+    const dupNode: DupNode = {
+      kind: "dup",
+      id: freshNodeId(), effect: "pure",
+      input: inPort, outputs: dupOuts,
+      provenance: [prov(srcId, "dup-for-over")],
+    };
+    builder.addNode(dupNode);
+    dupOutputIds = dupOuts.map((p) => p.id);
+  }
 
   // Branch 0: project .field, apply transform
   const transformFieldTy = inputType.fields.find((f) => f.name === field)!.ty;
   const projInPort0  = mkPort(inputType);
-  builder.wire(dupOuts[0]!.id, projInPort0.id);
+  builder.wire(dupOutputIds[0]!, projInPort0.id);
   const projOutPort0 = mkPort(transformFieldTy);
   const projNode0: ProjNode = {
     kind: "proj", field,
@@ -938,7 +948,7 @@ function elabOver(
   for (let i = 0; i < passthroughFields.length; i++) {
     const pf = passthroughFields[i]!;
     const projInPort  = mkPort(inputType);
-    builder.wire(dupOuts[i + 1]!.id, projInPort.id);
+    builder.wire(dupOutputIds[i + 1]!, projInPort.id);
     const projOutPort = mkPort(pf.ty);
     const projNode: ProjNode = {
       kind: "proj", field: pf.name,
@@ -975,43 +985,71 @@ function elabLet(
   const { builder } = ctx;
   const letNode = step.node;
   const { name, rhs, body, liveSet } = letNode;
-  const n = 1 + liveSet.length; // f_x + passthrough for each live var
 
-  // Create DupNode with n outputs.
-  const inPort = mkPort(step.morphTy.input);
-  builder.wire(inputPortId, inPort.id);
+  // Partition liveSet into vars already in ctx.locals (pre-projected by a binder or prior let)
+  // vs. vars that must be projected from the current input.
+  const liveFromLocals: Array<{ lv: LiveVar; portId: PortId }> = [];
+  const liveFromInput: LiveVar[] = [];
+  for (const lv of liveSet) {
+    const queue = ctx.locals.get(lv.name);
+    if (queue && queue.length > 0) {
+      liveFromLocals.push({ lv, portId: queue.shift()! });
+    } else {
+      liveFromInput.push(lv);
+    }
+  }
 
-  const dupOuts = Array.from({ length: n }, () => mkPort(step.morphTy.input));
-  const dupNode: DupNode = {
-    kind: "dup",
-    id: freshNodeId(), effect: "pure",
-    input: inPort, outputs: dupOuts,
-    provenance: [prov(srcId, "dup-for-let")],
-  };
-  builder.addNode(dupNode);
+  // n covers only liveFromInput (vars not already extracted); +1 for the RHS branch.
+  const n = 1 + liveFromInput.length;
+
+  // When n=1 (all live vars already in locals, or no live vars), skip DupNode.
+  let letDupOutputIds: PortId[];
+  if (n === 1) {
+    letDupOutputIds = [inputPortId];
+  } else {
+    const inPort = mkPort(step.morphTy.input);
+    builder.wire(inputPortId, inPort.id);
+    const dupOuts = Array.from({ length: n }, () => mkPort(step.morphTy.input));
+    const dupNode: DupNode = {
+      kind: "dup",
+      id: freshNodeId(), effect: "pure",
+      input: inPort, outputs: dupOuts,
+      provenance: [prov(srcId, "dup-for-let")],
+    };
+    builder.addNode(dupNode);
+    letDupOutputIds = dupOuts.map((p) => p.id);
+  }
 
   // Branch 0: elaborate f_x = norm_I(I, rhs)
-  const rhsOutPortId = elabNormI(rhs, dupOuts[0]!.id, step.morphTy.input, ctx, srcId);
+  const rhsOutPortId = elabNormI(rhs, letDupOutputIds[0]!, step.morphTy.input, ctx, srcId);
   const rhsTy = rhs.morphTy.output;
 
-  // Passthrough branches: project each live var.
-  const tupleInputs: { label: string; port: { id: string; ty: Type } }[] = [
+  // Build tupleInputs: new binding + live vars (in original liveSet order).
+  const tupleInputs: { label: string; port: { id: PortId; ty: Type } }[] = [
     { label: name, port: { id: rhsOutPortId, ty: rhsTy } },
   ];
 
-  for (let i = 0; i < liveSet.length; i++) {
-    const lv = liveSet[i]!;
-    const projInPort  = mkPort(step.morphTy.input);
-    builder.wire(dupOuts[i + 1]!.id, projInPort.id);
-    const projOutPort = mkPort(lv.ty);
-    const projNode: ProjNode = {
-      kind: "proj", field: lv.name,
-      id: freshNodeId(), effect: "pure",
-      input: projInPort, output: projOutPort,
-      provenance: [prov(srcId, "let-passthrough-proj")],
-    };
-    builder.addNode(projNode);
-    tupleInputs.push({ label: lv.name, port: { id: projOutPort.id, ty: lv.ty } });
+  let inputIdx = 1; // index into letDupOutputIds for liveFromInput vars
+  for (const lv of liveSet) {
+    const fromLocals = liveFromLocals.find((e) => e.lv.name === lv.name);
+    if (fromLocals) {
+      // Already pre-projected — use the existing port directly.
+      tupleInputs.push({ label: lv.name, port: { id: fromLocals.portId, ty: lv.ty } });
+    } else {
+      // Project from the let's DupNode output.
+      const projInPort  = mkPort(step.morphTy.input);
+      builder.wire(letDupOutputIds[inputIdx]!, projInPort.id);
+      inputIdx++;
+      const projOutPort = mkPort(lv.ty);
+      const projNode: ProjNode = {
+        kind: "proj", field: lv.name,
+        id: freshNodeId(), effect: "pure",
+        input: projInPort, output: projOutPort,
+        provenance: [prov(srcId, "let-passthrough-proj")],
+      };
+      builder.addNode(projNode);
+      tupleInputs.push({ label: lv.name, port: { id: projOutPort.id, ty: lv.ty } });
+    }
   }
 
   // Build the intermediate record R' = { name: rhsTy, v1: ..., ... }
@@ -1065,7 +1103,8 @@ function elabLet(
     };
     builder.addNode(projNode);
     const uses = useCounts.get(fi.label) ?? 1;
-    newLocals.set(fi.label, allocateLocalPort(projOutPort, uses, builder, srcId));
+    const letBodyPorts = allocateLocalPort(projOutPort, uses, builder, srcId);
+    if (letBodyPorts.length > 0) newLocals.set(fi.label, letBodyPorts);
   }
 
   // Elaborate body under new locals, with its dedicated rPrime copy as input.
@@ -1228,7 +1267,10 @@ function elabNormI(
 /**
  * Insert a DropNode (terminal morphism ! : I -> 1).
  * Returns the DropNode's output port ID (type Unit).
- * Used when norm_I Case B: a unit-sourced expr appears in a non-unit context.
+ *
+ * Always adds a DropNode — even for Unit input — so that the inputPortId is
+ * wired and the connectivity invariant holds. The DropNode's output is
+ * intentionally dangling (§9.16) when not threaded forward.
  */
 function liftUnit(
   inputPortId: PortId,
@@ -1236,7 +1278,6 @@ function liftUnit(
   builder: GraphBuilder,
   srcId: SourceNodeId,
 ): PortId {
-  if (inputTy.tag === "Unit") return inputPortId; // already unit; no-op
   const inPort  = mkPort(inputTy);
   const outPort = mkPort({ tag: "Unit" });
   builder.wire(inputPortId, inPort.id);
@@ -1272,7 +1313,18 @@ function allocateLocalPort(
   builder: GraphBuilder,
   srcId: SourceNodeId,
 ): PortId[] {
-  if (uses <= 1) return [port.id];
+  if (uses === 0) {
+    // Unused binder — drop immediately so no output port is orphaned.
+    const outPort = mkPort({ tag: "Unit" });
+    const dropNode: DropNode = {
+      kind: "drop", id: freshNodeId(), effect: "pure",
+      input: port, output: outPort,
+      provenance: [prov(srcId, "drop-unused-binder")],
+    };
+    builder.addNode(dropNode);
+    return [];
+  }
+  if (uses === 1) return [port.id];
   const dupOuts = Array.from({ length: uses }, () => mkPort(port.ty));
   const dupNode: DupNode = {
     kind: "dup",

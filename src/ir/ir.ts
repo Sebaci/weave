@@ -130,7 +130,7 @@ export type CaseNode = NodeBase & {
   output:     Port;
   variantTy:  Type;        // Σ — the closed variant type being eliminated
   outTy:      Type;        // A — the shared result type of all branches
-  branches:   { tag: string; rawPayloadTy?: Type; graph: Graph }[];
+  branches:   { tag: string; rawPayloadTy: Type; graph: Graph }[];
   field?:     string;      // discriminant field name; absent for plain case
   contextTy?: Type;        // ρ = input record type minus field k; absent for plain case
 };

@@ -49,6 +49,19 @@ export class GraphBuilder {
     this._wires.push({ from, to });
   }
 
+  /**
+   * Returns true if `portId` has already been "consumed as a source" — meaning
+   * it appears as `wire.from` in a wire, or directly as a node's input port ID
+   * (the direct-port-sharing pattern used by 1-binder handlers and DupNode binders).
+   *
+   * Used by LocalRef and Literal elaboration to decide whether to insert a DropNode
+   * for the current flowing port.
+   */
+  isPortConsumedAsSource(portId: PortId): boolean {
+    if (this._wires.some((w) => w.from === portId)) return true;
+    return this._nodes.some((n) => nodeInputPortIds(n).includes(portId));
+  }
+
   build(
     inPort:     Port,
     outPort:    Port,
@@ -78,4 +91,23 @@ export function mkPort(ty: Type): Port {
 
 export function prov(sourceId: SourceNodeId, role?: string): Provenance {
   return role !== undefined ? { sourceId, role } : { sourceId };
+}
+
+// ---------------------------------------------------------------------------
+// Internal: node input port ID extraction (used by isPortConsumedAsSource)
+// ---------------------------------------------------------------------------
+
+function nodeInputPortIds(node: Node): PortId[] {
+  switch (node.kind) {
+    case "const":  return [];
+    case "dup":    return [node.input.id];
+    case "drop":   return [node.input.id];
+    case "proj":   return [node.input.id];
+    case "tuple":  return node.inputs.map((i) => i.port.id);
+    case "case":   return [node.input.id];
+    case "cata":   return [node.input.id];
+    case "ctor":   return [node.input.id];
+    case "effect": return [node.input.id];
+    case "ref":    return [node.input.id];
+  }
 }

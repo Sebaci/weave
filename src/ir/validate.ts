@@ -3,7 +3,7 @@
  * Called eagerly after each Graph is constructed.
  */
 
-import type { Graph, Node, Port, Wire, PortId } from "./ir.ts";
+import type { Graph, Node, Port, PortId } from "./ir.ts";
 import { effectJoin, isConcrete, typeEq } from "../types/check.ts";
 import { substAdt } from "../types/subst.ts";
 import type { ConcreteEffect, Type } from "../types/type.ts";
@@ -16,30 +16,39 @@ export type ValidationResult =
 export function validateGraph(graph: Graph): ValidationResult {
   const errors: ValidationError[] = [];
 
-  // IR-1: Every graph is a morphism (has exactly one inPort and one outPort).
-  // Structural: guaranteed by the Graph type and GraphBuilder.build().
-  // We verify that all nodes have ports traceable to the graph boundary.
-  const allPortIds = collectAllPortIds(graph);
-  checkPortsConnected(graph, allPortIds, errors);
+  // IR-1a: Wire endpoints reference known port IDs.
+  const portTypeMap = collectPortTypeMap(graph);
+  checkPortsConnected(graph, portTypeMap, errors);
+
+  // IR-1b: Every node's ports are connected (no orphaned nodes or dangling inputs).
+  checkNodeConnectivity(graph, errors);
 
   // IR-2: All sharing is explicit via DupNode.
-  // A port may have at most one outgoing wire unless it belongs to a DupNode's outputs.
   checkNoImplicitSharing(graph, errors);
+
+  // IR-3: Wire endpoint types are compatible.
+  checkWireTypeCompatibility(graph, portTypeMap, errors);
 
   // IR-4: Graph.effect equals the join of all contained node effects.
   checkEffectConsistency(graph, errors);
 
+  // IR-4b: Per-node effect-level shapes match spec.
+  checkNodeEffectShape(graph, errors);
+
   // IR-6: CataNode algebra branch ports use substituted types.
   checkCataSubstitution(graph, errors);
 
-  // IR-6b: field-focused CaseNode branch ports use merged types.
-  checkCaseFieldBranchPorts(graph, errors);
+  // IR-6b: CaseNode branch ports use correct types (plain and field-focused).
+  checkCaseBranchPorts(graph, errors);
 
   // IR-7: All port types are fully concrete.
   checkConcreteTypes(graph, errors);
 
   // IR-8: Provenance is never empty on nodes from elaboration.
   checkProvenance(graph, errors);
+
+  // Shape invariants: node-kind-specific structural constraints.
+  checkNodeShapeInvariants(graph, errors);
 
   // Recurse into sub-graphs (CaseNode branches, CataNode algebra).
   for (const node of graph.nodes) {
@@ -61,46 +70,111 @@ export function validateGraph(graph: Graph): ValidationResult {
 }
 
 // ---------------------------------------------------------------------------
-// IR-1 helpers
+// IR-1a: Port ID validity
 // ---------------------------------------------------------------------------
 
-function collectAllPortIds(graph: Graph): Set<PortId> {
-  const ids = new Set<PortId>();
-  ids.add(graph.inPort.id);
-  ids.add(graph.outPort.id);
+function collectPortTypeMap(graph: Graph): Map<PortId, Type> {
+  const map = new Map<PortId, Type>();
+  map.set(graph.inPort.id, graph.inPort.ty);
+  map.set(graph.outPort.id, graph.outPort.ty);
   for (const node of graph.nodes) {
-    for (const port of nodePorts(node)) ids.add(port.id);
+    for (const port of nodePorts(node)) map.set(port.id, port.ty);
   }
-  return ids;
+  return map;
 }
 
-function checkPortsConnected(graph: Graph, allPortIds: Set<PortId>, errors: ValidationError[]) {
+function checkPortsConnected(graph: Graph, portTypeMap: Map<PortId, Type>, errors: ValidationError[]) {
   for (const wire of graph.wires) {
-    if (!allPortIds.has(wire.from)) {
+    if (!portTypeMap.has(wire.from)) {
       errors.push({ rule: "IR-1", message: `Wire references unknown port '${wire.from}'` });
     }
-    if (!allPortIds.has(wire.to)) {
+    if (!portTypeMap.has(wire.to)) {
       errors.push({ rule: "IR-1", message: `Wire references unknown port '${wire.to}'` });
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// IR-2 helper
+// IR-1b: Node connectivity (no orphaned nodes or dangling ports)
+//
+// The IR uses two connection patterns:
+//   1. Explicit wires: wire(from, to) — from is a producer, to is a fresh consumer.
+//   2. Direct port sharing: the same port ID serves as both a node output and a node
+//      input (or as graph.inPort directly). No wire is needed because they are
+//      literally the same port.
+//
+// "Supplied" for an input port P means: P == graph.inPort.id, OR P appears as
+// wire.to, OR P appears as an output port of some other node.
+//
+// "Consumed" for an output port P means: P appears as wire.from, OR P appears as
+// an input port of some node, OR P == graph.outPort.id.
+//
+// DropNode.output is intentionally dangling per §9.16 — carved out below.
+// ---------------------------------------------------------------------------
+
+function checkNodeConnectivity(graph: Graph, errors: ValidationError[]) {
+  const wireTo   = new Set<PortId>(graph.wires.map((w) => w.to));
+  const wireFrom = new Set<PortId>(graph.wires.map((w) => w.from));
+
+  const allOutputPortIds = new Set<PortId>();
+  const allInputPortIds  = new Set<PortId>();
+  for (const node of graph.nodes) {
+    for (const p of nodeOutputPorts(node)) allOutputPortIds.add(p.id);
+    for (const p of nodeInputPorts(node))  allInputPortIds.add(p.id);
+  }
+
+  // graph.outPort must be fed: it must appear as wire.to (something wires to it).
+  if (!wireTo.has(graph.outPort.id)) {
+    errors.push({ rule: "IR-1", message: "graph.outPort has no incoming wire" });
+  }
+
+  for (const node of graph.nodes) {
+    // Every node input port must be supplied (fed with a value).
+    for (const p of nodeInputPorts(node)) {
+      const supplied =
+        p.id === graph.inPort.id  ||  // directly IS the graph input
+        wireTo.has(p.id)          ||  // fed by a wire
+        allOutputPortIds.has(p.id);   // directly IS the output of another node (port sharing)
+      if (!supplied) {
+        errors.push({
+          rule:    "IR-1",
+          message: `Node '${node.id}' (${node.kind}) input port '${p.id}' is not connected to any producer`,
+        });
+      }
+    }
+
+    // Every node output port must be consumed somewhere.
+    // Carve-out: DropNode.output is intentionally dangling (§9.16).
+    if (node.kind === "drop") continue;
+    for (const p of nodeOutputPorts(node)) {
+      const consumed =
+        wireFrom.has(p.id)      ||  // taken by a wire
+        allInputPortIds.has(p.id) || // directly used as input of another node (port sharing)
+        p.id === graph.outPort.id;   // directly IS the graph output (unusual but valid)
+      if (!consumed) {
+        errors.push({
+          rule:    "IR-1",
+          message: `Node '${node.id}' (${node.kind}) output port '${p.id}' is not consumed anywhere`,
+        });
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IR-2: No implicit sharing
 // ---------------------------------------------------------------------------
 
 function checkNoImplicitSharing(graph: Graph, errors: ValidationError[]) {
   // Every port — including DupNode outputs — must have at most one outgoing wire.
-  // DupNode is the *source* of copies; its outputs are still single-consumer ports.
   const outgoing = new Map<PortId, number>();
   for (const wire of graph.wires) {
     outgoing.set(wire.from, (outgoing.get(wire.from) ?? 0) + 1);
   }
-
   for (const [portId, count] of outgoing) {
     if (count > 1) {
       errors.push({
-        rule: "IR-2",
+        rule:    "IR-2",
         message: `Port '${portId}' has ${count} outgoing wires (implicit sharing)`,
       });
     }
@@ -108,7 +182,29 @@ function checkNoImplicitSharing(graph: Graph, errors: ValidationError[]) {
 }
 
 // ---------------------------------------------------------------------------
-// IR-4 helper
+// IR-3: Wire endpoint type compatibility
+// ---------------------------------------------------------------------------
+
+function checkWireTypeCompatibility(
+  graph: Graph,
+  portTypeMap: Map<PortId, Type>,
+  errors: ValidationError[],
+) {
+  for (const wire of graph.wires) {
+    const fromTy = portTypeMap.get(wire.from);
+    const toTy   = portTypeMap.get(wire.to);
+    if (fromTy === undefined || toTy === undefined) continue; // caught by IR-1a
+    if (!typeEq(fromTy, toTy)) {
+      errors.push({
+        rule:    "IR-3",
+        message: `Wire ${wire.from} -> ${wire.to}: type mismatch — ${showTy(fromTy)} vs ${showTy(toTy)}`,
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IR-4: Effect consistency
 // ---------------------------------------------------------------------------
 
 function checkEffectConsistency(graph: Graph, errors: ValidationError[]) {
@@ -118,28 +214,68 @@ function checkEffectConsistency(graph: Graph, errors: ValidationError[]) {
   }
   if (joined !== graph.effect) {
     errors.push({
-      rule: "IR-4",
+      rule:    "IR-4",
       message: `Graph.effect is '${graph.effect}' but join of node effects is '${joined}'`,
     });
   }
 }
 
 // ---------------------------------------------------------------------------
-// IR-6 helper
+// IR-4b: Per-node effect-level shape
+// ---------------------------------------------------------------------------
+
+const PURE_EFFECT_KINDS = new Set<Node["kind"]>(["dup", "drop", "proj", "tuple", "const", "ctor"]);
+
+function checkNodeEffectShape(graph: Graph, errors: ValidationError[]) {
+  for (const node of graph.nodes) {
+    // Use a widening cast to read the runtime effect value unnarrowed.
+    const eff = node.effect as ConcreteEffect;
+    if (PURE_EFFECT_KINDS.has(node.kind)) {
+      if (eff !== "pure") {
+        errors.push({
+          rule:    "IR-4",
+          message: `Node '${node.id}' (${node.kind}) must have effect 'pure', got '${eff}'`,
+        });
+      }
+    } else if (node.kind === "effect") {
+      if (eff !== "parallel-safe" && eff !== "sequential") {
+        errors.push({
+          rule:    "IR-4",
+          message: `EffectNode '${node.id}' must have effect 'parallel-safe' or 'sequential', got '${eff}'`,
+        });
+      }
+    }
+    // case, cata, ref: effect is the join of sub-effects; no fixed shape constraint.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IR-6: CataNode algebra branch substitution
 // ---------------------------------------------------------------------------
 
 function checkCataSubstitution(graph: Graph, errors: ValidationError[]) {
   for (const node of graph.nodes) {
     if (node.kind !== "cata") continue;
     for (const branch of node.algebra) {
-      const expected = substAdt(branch.rawPayloadTy, node.adtTy, node.carrierTy);
-      const actual = branch.graph.inPort.ty;
-      if (!typeEq(actual, expected)) {
+      // inPort type must be Pi[carrierTy/adtTy]
+      const expectedIn = substAdt(branch.rawPayloadTy, node.adtTy, node.carrierTy);
+      const actualIn   = branch.graph.inPort.ty;
+      if (!typeEq(actualIn, expectedIn)) {
         errors.push({
-          rule: "IR-6",
+          rule:    "IR-6",
           message:
             `CataNode algebra branch '${branch.tag}': inPort type mismatch` +
-            ` — expected ${showTy(expected)}, got ${showTy(actual)}`,
+            ` — expected ${showTy(expectedIn)}, got ${showTy(actualIn)}`,
+        });
+      }
+      // outPort type must equal carrierTy
+      const actualOut = branch.graph.outPort.ty;
+      if (!typeEq(actualOut, node.carrierTy)) {
+        errors.push({
+          rule:    "IR-6",
+          message:
+            `CataNode algebra branch '${branch.tag}': outPort type mismatch` +
+            ` — expected ${showTy(node.carrierTy)}, got ${showTy(actualOut)}`,
         });
       }
     }
@@ -147,81 +283,107 @@ function checkCataSubstitution(graph: Graph, errors: ValidationError[]) {
 }
 
 // ---------------------------------------------------------------------------
-// IR-6b helper
+// IR-6b: CaseNode branch port types
 // ---------------------------------------------------------------------------
 
-function checkCaseFieldBranchPorts(graph: Graph, errors: ValidationError[]) {
+function checkCaseBranchPorts(graph: Graph, errors: ValidationError[]) {
   for (const node of graph.nodes) {
-    if (node.kind !== "case" || node.field === undefined || node.contextTy === undefined) continue;
+    if (node.kind !== "case") continue;
 
-    const contextTy = node.contextTy;
-    if (contextTy.tag !== "Record") {
-      errors.push({ rule: "IR-6b", message: `CaseNode(field=${node.field}): contextTy is not a Record` });
+    if (node.field !== undefined) {
+      // Field-focused case: branch inPort = merge(Pi, contextTy) or contextTy for nullary.
+      checkCaseFieldBranches(node.field, node.contextTy, node.branches, node.outTy, errors);
+    } else {
+      // Plain case: branch inPort = rawPayloadTy.
+      for (const branch of node.branches) {
+        const expected = branch.rawPayloadTy;
+        const actual   = branch.graph.inPort.ty;
+        if (!typeEq(actual, expected)) {
+          errors.push({
+            rule:    "IR-6b",
+            message:
+              `CaseNode branch '${branch.tag}': inPort type mismatch` +
+              ` — expected ${showTy(expected)}, got ${showTy(actual)}`,
+          });
+        }
+      }
+    }
+
+    // Both plain and field case: every branch outPort must equal node.outTy.
+    for (const branch of node.branches) {
+      const actual = branch.graph.outPort.ty;
+      if (!typeEq(actual, node.outTy)) {
+        errors.push({
+          rule:    "IR-6b",
+          message:
+            `CaseNode branch '${branch.tag}': outPort type mismatch` +
+            ` — expected ${showTy(node.outTy)}, got ${showTy(actual)}`,
+        });
+      }
+    }
+  }
+}
+
+function checkCaseFieldBranches(
+  field: string,
+  contextTy: Type | undefined,
+  branches: { tag: string; rawPayloadTy: Type; graph: Graph }[],
+  _outTy: Type,
+  errors: ValidationError[],
+) {
+  if (contextTy === undefined || contextTy.tag !== "Record") {
+    errors.push({ rule: "IR-6b", message: `CaseNode(field=${field}): contextTy is missing or not a Record` });
+    return;
+  }
+  const contextFields = new Set(contextTy.fields.map((f) => f.name));
+
+  for (const branch of branches) {
+    const pi = branch.rawPayloadTy;
+    let expected: Type;
+
+    if (pi.tag === "Unit") {
+      expected = contextTy;
+    } else if (pi.tag === "Record") {
+      // F-4: disjointness — fields(Pi) ∩ fields(contextTy) must be empty.
+      for (const f of pi.fields) {
+        if (contextFields.has(f.name)) {
+          errors.push({
+            rule:    "IR-6b",
+            message:
+              `CaseNode(field=${field}) branch '${branch.tag}': payload field '${f.name}' collides with contextTy field`,
+          });
+        }
+      }
+      expected = { tag: "Record", fields: [...pi.fields, ...contextTy.fields], rest: null };
+    } else {
+      errors.push({
+        rule:    "IR-6b",
+        message: `CaseNode(field=${field}) branch '${branch.tag}': rawPayloadTy is not Unit or Record`,
+      });
       continue;
     }
 
-    for (const branch of node.branches) {
-      if (branch.rawPayloadTy === undefined) {
-        errors.push({
-          rule: "IR-6b",
-          message: `CaseNode(field=${node.field}) branch '${branch.tag}': missing rawPayloadTy`,
-        });
-        continue;
-      }
-
-      const pi = branch.rawPayloadTy;
-      let expected: Type;
-      if (pi.tag === "Unit") {
-        expected = contextTy;
-      } else if (pi.tag === "Record") {
-        expected = { tag: "Record", fields: [...pi.fields, ...contextTy.fields], rest: null };
-      } else {
-        errors.push({
-          rule: "IR-6b",
-          message: `CaseNode(field=${node.field}) branch '${branch.tag}': rawPayloadTy is not Unit or Record`,
-        });
-        continue;
-      }
-
-      const actual = branch.graph.inPort.ty;
-      if (!typeEq(actual, expected)) {
-        errors.push({
-          rule: "IR-6b",
-          message:
-            `CaseNode(field=${node.field}) branch '${branch.tag}': inPort type mismatch` +
-            ` — expected ${showTy(expected)}, got ${showTy(actual)}`,
-        });
-      }
+    const actual = branch.graph.inPort.ty;
+    if (!typeEq(actual, expected)) {
+      errors.push({
+        rule:    "IR-6b",
+        message:
+          `CaseNode(field=${field}) branch '${branch.tag}': inPort type mismatch` +
+          ` — expected ${showTy(expected)}, got ${showTy(actual)}`,
+      });
     }
   }
 }
 
-function showTy(ty: Type): string {
-  switch (ty.tag) {
-    case "Unit":   return "Unit";
-    case "Int":    return "Int";
-    case "Float":  return "Float";
-    case "Bool":   return "Bool";
-    case "Text":   return "Text";
-    case "TyVar":  return ty.name;
-    case "Record":
-      return `{ ${ty.fields.map((f) => `${f.name}: ${showTy(f.ty)}`).join(", ")}${ty.rest ? ` | ${ty.rest}` : ""} }`;
-    case "Named":
-      return ty.args.length === 0 ? ty.name : `${ty.name} ${ty.args.map(showTy).join(" ")}`;
-    case "Arrow":
-      return `(${showTy(ty.from)} -> ${showTy(ty.to)})`;
-  }
-}
-
 // ---------------------------------------------------------------------------
-// IR-7 helper
+// IR-7: Concrete types
 // ---------------------------------------------------------------------------
 
 function checkConcreteTypes(graph: Graph, errors: ValidationError[]) {
   const check = (port: Port, location: string) => {
     if (!isConcrete(port.ty)) {
       errors.push({
-        rule: "IR-7",
+        rule:    "IR-7",
         message: `Port '${port.id}' at ${location} has non-concrete type`,
       });
     }
@@ -237,16 +399,157 @@ function checkConcreteTypes(graph: Graph, errors: ValidationError[]) {
 }
 
 // ---------------------------------------------------------------------------
-// IR-8 helper
+// IR-8: Provenance non-empty
 // ---------------------------------------------------------------------------
 
 function checkProvenance(graph: Graph, errors: ValidationError[]) {
   for (const node of graph.nodes) {
     if (node.provenance.length === 0) {
       errors.push({
-        rule: "IR-8",
+        rule:    "IR-8",
         message: `Node '${node.id}' (${node.kind}) has empty provenance`,
       });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shape invariants (node-kind structural constraints)
+// ---------------------------------------------------------------------------
+
+function checkNodeShapeInvariants(graph: Graph, errors: ValidationError[]) {
+  for (const node of graph.nodes) {
+    switch (node.kind) {
+      case "dup": {
+        if (node.outputs.length < 2) {
+          errors.push({
+            rule:    "IR-shape",
+            message: `DupNode '${node.id}' has ${node.outputs.length} output(s) — must be >= 2`,
+          });
+        }
+        for (const out of node.outputs) {
+          if (!typeEq(out.ty, node.input.ty)) {
+            errors.push({
+              rule:    "IR-shape",
+              message:
+                `DupNode '${node.id}' output port '${out.id}' type ${showTy(out.ty)}` +
+                ` does not match input type ${showTy(node.input.ty)}`,
+            });
+          }
+        }
+        break;
+      }
+
+      case "drop": {
+        if (node.output.ty.tag !== "Unit") {
+          errors.push({
+            rule:    "IR-shape",
+            message: `DropNode '${node.id}' output type must be Unit, got ${showTy(node.output.ty)}`,
+          });
+        }
+        break;
+      }
+
+      case "proj": {
+        const inTy = node.input.ty;
+        if (inTy.tag !== "Record") {
+          errors.push({
+            rule:    "IR-shape",
+            message: `ProjNode '${node.id}' input type must be Record, got ${showTy(inTy)}`,
+          });
+          break;
+        }
+        const fieldEntry = inTy.fields.find((f) => f.name === node.field);
+        if (!fieldEntry) {
+          errors.push({
+            rule:    "IR-shape",
+            message: `ProjNode '${node.id}' field '${node.field}' not found in input type ${showTy(inTy)}`,
+          });
+          break;
+        }
+        if (!typeEq(node.output.ty, fieldEntry.ty)) {
+          errors.push({
+            rule:    "IR-shape",
+            message:
+              `ProjNode '${node.id}' output type ${showTy(node.output.ty)}` +
+              ` does not match field '${node.field}' type ${showTy(fieldEntry.ty)}`,
+          });
+        }
+        break;
+      }
+
+      case "tuple": {
+        const expected: Type = {
+          tag: "Record",
+          fields: node.inputs.map((i) => ({ name: i.label, ty: i.port.ty })),
+          rest: null,
+        };
+        if (!typeEq(node.output.ty, expected)) {
+          errors.push({
+            rule:    "IR-shape",
+            message:
+              `TupleNode '${node.id}' output type ${showTy(node.output.ty)}` +
+              ` does not match expected ${showTy(expected)}`,
+          });
+        }
+        break;
+      }
+
+      case "case": {
+        if (!typeEq(node.output.ty, node.outTy)) {
+          errors.push({
+            rule:    "IR-shape",
+            message:
+              `CaseNode '${node.id}' output port type ${showTy(node.output.ty)}` +
+              ` does not match outTy ${showTy(node.outTy)}`,
+          });
+        }
+        // For plain case, input type must equal variantTy.
+        // For field-focused case, input.ty is the full record; variantTy is the field's variant type.
+        if (node.field === undefined && !typeEq(node.input.ty, node.variantTy)) {
+          errors.push({
+            rule:    "IR-shape",
+            message:
+              `CaseNode '${node.id}' input port type ${showTy(node.input.ty)}` +
+              ` does not match variantTy ${showTy(node.variantTy)}`,
+          });
+        }
+        break;
+      }
+
+      case "cata": {
+        if (!typeEq(node.input.ty, node.adtTy)) {
+          errors.push({
+            rule:    "IR-shape",
+            message:
+              `CataNode '${node.id}' input port type ${showTy(node.input.ty)}` +
+              ` does not match adtTy ${showTy(node.adtTy)}`,
+          });
+        }
+        if (!typeEq(node.output.ty, node.carrierTy)) {
+          errors.push({
+            rule:    "IR-shape",
+            message:
+              `CataNode '${node.id}' output port type ${showTy(node.output.ty)}` +
+              ` does not match carrierTy ${showTy(node.carrierTy)}`,
+          });
+        }
+        break;
+      }
+
+      case "ctor": {
+        if (!typeEq(node.output.ty, node.adtTy)) {
+          errors.push({
+            rule:    "IR-shape",
+            message:
+              `CtorNode '${node.id}' (${node.ctorName}) output type ${showTy(node.output.ty)}` +
+              ` does not match adtTy ${showTy(node.adtTy)}`,
+          });
+        }
+        break;
+      }
+
+      // const, effect, ref: no additional shape constraints beyond type checking.
     }
   }
 }
@@ -267,5 +570,56 @@ function nodePorts(node: Node): Port[] {
     case "ctor":   return [node.input, node.output];
     case "effect": return [node.input, node.output];
     case "ref":    return [node.input, node.output];
+  }
+}
+
+function nodeInputPorts(node: Node): Port[] {
+  switch (node.kind) {
+    case "const":  return [];
+    case "dup":    return [node.input];
+    case "drop":   return [node.input];
+    case "proj":   return [node.input];
+    case "tuple":  return node.inputs.map((i) => i.port);
+    case "case":   return [node.input];
+    case "cata":   return [node.input];
+    case "ctor":   return [node.input];
+    case "effect": return [node.input];
+    case "ref":    return [node.input];
+  }
+}
+
+function nodeOutputPorts(node: Node): Port[] {
+  switch (node.kind) {
+    case "dup":    return node.outputs;
+    case "drop":   return [node.output];
+    case "proj":   return [node.output];
+    case "tuple":  return [node.output];
+    case "case":   return [node.output];
+    case "cata":   return [node.output];
+    case "const":  return [node.output];
+    case "ctor":   return [node.output];
+    case "effect": return [node.output];
+    case "ref":    return [node.output];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Type display helper
+// ---------------------------------------------------------------------------
+
+function showTy(ty: Type): string {
+  switch (ty.tag) {
+    case "Unit":   return "Unit";
+    case "Int":    return "Int";
+    case "Float":  return "Float";
+    case "Bool":   return "Bool";
+    case "Text":   return "Text";
+    case "TyVar":  return ty.name;
+    case "Record":
+      return `{ ${ty.fields.map((f) => `${f.name}: ${showTy(f.ty)}`).join(", ")}${ty.rest ? ` | ${ty.rest}` : ""} }`;
+    case "Named":
+      return ty.args.length === 0 ? ty.name : `${ty.name} ${ty.args.map(showTy).join(" ")}`;
+    case "Arrow":
+      return `(${showTy(ty.from)} -> ${showTy(ty.to)})`;
   }
 }
