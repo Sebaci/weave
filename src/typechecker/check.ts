@@ -1458,9 +1458,8 @@ function checkOver(
   const newFieldTy = typedTransform.morphTy.output;
   const eff = typedTransform.morphTy.eff;
 
-  // Output type: same record but with `field` replaced by newFieldTy.
-  // Named record aliases are unfolded, so the output is always an explicit Record.
-  const outputTy = replaceField(inputTy, field, newFieldTy, env);
+  // Output type: same record but with `field` replaced by newFieldTy
+  const outputTy = replaceField(inputTy, field, newFieldTy);
 
   return ok(makeStep(
     { tag: "Over", field, transform: typedTransform },
@@ -1957,39 +1956,24 @@ function singleNameExpr(name: string, sourceId: SourceNodeId): Expr {
 
 type FieldLookupResult = { ok: true; ty: Type } | { ok: false; message: string };
 
-/**
- * Unfold a Named type whose declaration has a Record body.
- * Returns null if the type is not an unfoldable Named-Record alias.
- */
-function unfoldNamedRecord(ty: Type, env: CheckEnv): { tag: "Record"; fields: { name: string; ty: Type }[]; rest: string | null } | null {
-  if (ty.tag !== "Named") return null;
-  const decl = env.typeDecls.get(ty.name);
-  if (!decl || decl.body.tag !== "Record") return null;
-  const fields = decl.body.fields.map((f) => {
-    let fty = f.ty;
-    for (let i = 0; i < decl.params.length; i++) {
-      fty = substTyVar(fty, decl.params[i]!, ty.args[i] ?? { tag: "TyVar", name: decl.params[i]! });
-    }
-    return { name: f.name, ty: fty };
-  });
-  return { tag: "Record", fields, rest: null };
-}
-
-function lookupField(ty: Type, field: string, env: CheckEnv): FieldLookupResult {
-  const rec = ty.tag === "Record" ? ty : unfoldNamedRecord(ty, env);
-  if (!rec) return { ok: false, message: `Expected record type, got ${showType(ty)}` };
-  const f = rec.fields.find((f) => f.name === field);
+function lookupField(ty: Type, field: string, _env: CheckEnv): FieldLookupResult {
+  // Named record-body aliases (type Foo = { x: Int }) are not unfolded here.
+  // Doing so would require normalizing morphTy.input throughout the pipeline so
+  // the elaborator and IR validator see a consistent Record type at every port.
+  // Use Variant-style single-ctor types (type Foo = | Foo { x: Int }) instead —
+  // those go through the standard case/handler path and have no this limitation.
+  if (ty.tag !== "Record") return { ok: false, message: `Expected record type, got ${showType(ty)}` };
+  const f = ty.fields.find((f) => f.name === field);
   if (!f) return { ok: false, message: `No field '${field}' in ${showType(ty)}` };
   return { ok: true, ty: f.ty };
 }
 
-function replaceField(ty: Type, field: string, newTy: Type, env?: CheckEnv): Type {
-  const rec = ty.tag === "Record" ? ty : (env ? unfoldNamedRecord(ty, env) : null);
-  if (!rec) return ty;
+function replaceField(ty: Type, field: string, newTy: Type): Type {
+  if (ty.tag !== "Record") return ty;
   return {
     tag: "Record",
-    fields: rec.fields.map((f) => f.name === field ? { name: f.name, ty: newTy } : f),
-    rest: rec.rest,
+    fields: ty.fields.map((f) => f.name === field ? { name: f.name, ty: newTy } : f),
+    rest: ty.rest,
   };
 }
 

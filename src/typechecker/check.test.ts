@@ -337,3 +337,4 @@ test("schema: mutual schema instantiation cycle is rejected (E_SCHEMA_CYCLE)", (
   expect(r.ok).toBe(false);
   expect(r.ok ? null : r.errors[0]?.code).toBe("E_SCHEMA_CYCLE");
 });
+
