@@ -238,10 +238,22 @@ type EnvBuildResult = {
   omega:           Omega;
 };
 
+function typeDeclInfoToTyped(info: TypeDeclInfo): TypedTypeDecl {
+  const body: TypedTypeDeclBody = info.body.tag === "Record"
+    ? { tag: "Record", fields: info.body.fields }
+    : { tag: "Variant", ctors: info.body.ctors.map((c) => ({ name: c.ctorName, payloadTy: c.payloadTy })) };
+  return { name: info.name, params: info.params, body, isRecursive: info.isRecursive, sourceId: info.sourceId };
+}
+
 function buildEnv(mod: Module, seeds?: ModuleExports): TypeResult<EnvBuildResult> {
   const errors: TypeError[] = [];
   const typeDecls: TypeDeclEnv              = new Map(seeds?.typeDecls);
-  const typedTypeDecls                      = new Map<string, TypedTypeDecl>();
+  // Seed typedTypeDecls from imported declarations so that TypedModule.typeDecls
+  // includes all types visible to this module (not only locally declared ones).
+  // Local declarations added below will overwrite seeded entries of the same name.
+  const typedTypeDecls                      = new Map<string, TypedTypeDecl>(
+    seeds ? [...seeds.typeDecls].map(([k, v]) => [k, typeDeclInfoToTyped(v)]) : [],
+  );
   const omega: Omega                        = new Map(seeds?.omega);
   const defs: Map<string, DefInfo>          = new Map(seeds?.defs);
   const ctors: Map<string, CtorInfo>        = new Map(seeds?.ctors);
@@ -376,10 +388,22 @@ function buildTypeDecl(decl: TypeDecl, typeDecls: TypeDeclEnv): TypeResult<{ inf
         adtParams: decl.params, payloadTy: null,
       }));
     } else {
+      // Reject fields whose resolved type contains Arrow. ADT constructors hold
+      // data values; morphism types (Arrow) cannot be inhabited at runtime in Weave v1.
+      // This ensures containsAdt/foldPayload in the interpreter never encounter Arrow
+      // in a payload type, making their non-traversal of Arrow correct by construction.
       const fieldsR = collectResults(
         ctor.payload.map((f) => mapResult(
           resolveSurfaceType(f.ty, decl.params, typeDecls),
-          (ty) => ok<{ name: string; ty: Type }>({ name: f.name, ty }),
+          (ty) => {
+            if (typeContainsArrow(ty)) {
+              return typeError(
+                `Constructor '${ctor.name}' field '${f.name}' has a function type — ADT constructor fields cannot hold morphism types in Weave v1`,
+                f.meta.id, "E_ARROW_IN_PAYLOAD",
+              );
+            }
+            return ok<{ name: string; ty: Type }>({ name: f.name, ty });
+          },
         )),
       );
       ctorResults.push(mapResult(fieldsR, (fields) => ok<CtorInfo>({
@@ -418,6 +442,15 @@ function typeReferences(ty: Type, name: string): boolean {
     case "Record": return ty.fields.some((f) => typeReferences(f.ty, name));
     case "Named": return ty.name === name || ty.args.some((a) => typeReferences(a, name));
     case "Arrow": return typeReferences(ty.from, name) || typeReferences(ty.to, name);
+  }
+}
+
+function typeContainsArrow(ty: Type): boolean {
+  switch (ty.tag) {
+    case "Unit": case "Int": case "Float": case "Bool": case "Text": case "TyVar": return false;
+    case "Record": return ty.fields.some((f) => typeContainsArrow(f.ty));
+    case "Named": return ty.args.some(typeContainsArrow);
+    case "Arrow": return true;
   }
 }
 

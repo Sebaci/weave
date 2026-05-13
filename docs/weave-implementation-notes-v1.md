@@ -281,6 +281,44 @@ In the surface AST, uppercase identifiers used as values (e.g. `Nil`, `Cons`,
 (`Γ_local`) and global defs. Constructor references must be `stepCtor(name)`;
 using `stepName(name)` for a constructor is a type error ("Undefined name").
 
+### 4.10 ADT constructor fields must be first-order data types — Arrow is rejected
+
+`checkTypeDecl` rejects any constructor field whose resolved type contains an
+`Arrow`, reporting `E_ARROW_IN_PAYLOAD` at the field's source ID. This is not
+a strict-positivity rule (which would allow Arrow in positive/covariant positions)
+— it is a stronger, v1-specific rule: **no Arrow anywhere in a constructor payload**.
+
+The rationale is semantic, not syntactic. Weave v1 has no runtime function values
+(the interpreter's `Value` type has no closure/function case). Even a constructor
+field with `Arrow` in a positive position would be uninhabitable at runtime and
+would have no well-defined fold semantics. A strict-positivity check would admit
+such declarations while the interpreter silently misbehaved; an outright rejection
+gives a clear error early.
+
+A secondary consequence: `containsAdt` in the interpreter (which detects recursive
+positions during `fold`) does not traverse `Arrow`. This omission is correct by
+construction because `E_ARROW_IN_PAYLOAD` prevents Arrow from ever appearing in a
+well-typed constructor payload. See §8.5.
+
+The error is reported at the field's `SurfaceField.meta.id`, not at the enclosing
+type declaration, so the diagnostic points at the exact offending field.
+
+### 4.11 buildEnv seeds imported type declarations into typedTypeDecls
+
+`buildEnv` receives an optional `seeds` parameter (populated from imported modules
+by `checkModule`). It adds every imported `TypeDeclInfo` to `typedTypeDecls` via
+`typeDeclInfoToTyped`. This ensures `TypedModule.typeDecls` contains all types
+visible to the module — not only locally declared ones.
+
+This is required for the elaborator's `elaborateModule` to produce an
+`ElaboratedModule` that includes container types from imports (e.g. `List` from a
+standard library module). Without it, `foldPayload` in the interpreter would throw
+at runtime when encountering a `Named` container type defined in another module.
+
+`typeDeclInfoToTyped` performs a straightforward field projection from
+`TypeDeclInfo` to `TypedTypeDecl`. `CtorInfo` fields `adtName`/`adtParams` are
+intentionally dropped because `TypedCtorDecl` only carries `name` and `payloadTy`.
+
 ---
 
 ## 5. Elaborator (decisions recorded as they are made)
@@ -394,6 +432,41 @@ check and the closed-variant invariant.
 output to `VUnit`. This preserves effect ordering — a `perform` node feeding
 into a `DropNode` still executes. In a pure-only interpreter this could be
 skipped, but v1 must preserve the correct effect semantics.
+
+### 8.5 foldPayload handles Named container types via typeDecls lookup
+
+`CataNode` evaluation (`interpretCata`) passes a `typeDecls: Map<string, TypedTypeDecl>`
+parameter through `evalGraph`. When `foldPayload` encounters a `Named` type whose
+type arguments contain the recursive ADT type (e.g. `List Tree`, `Maybe Tree`),
+it looks up the container's declaration in `typeDecls`, instantiates its body type
+with the actual type arguments, and recurses into the resulting value structure.
+
+This handles the general case where the recursive ADT appears inside a container
+type argument, not just directly in a record field.
+
+`typeDecls` is sourced from `ElaboratedModule.typeDecls`, which is populated
+from `TypedModule.typeDecls` (see §4.11). Hand-built IR that bypasses the
+compiler pipeline must supply a complete `typeDecls` map; an incomplete map causes
+a runtime throw (`E_ARROW_IN_PAYLOAD` prevents the worst silent failure, but an
+incomplete map is still an error).
+
+### 8.6 containsAdt does not traverse Arrow — correct by construction
+
+`containsAdt` (inside `interpretCata`) checks whether a type structurally contains
+the recursive ADT type. It traverses `Named` type arguments and `Record` fields but
+not `Arrow`. This omission is intentional and correct:
+
+1. The typechecker rejects Arrow in constructor payloads (`E_ARROW_IN_PAYLOAD`,
+   §4.10), so Arrow cannot appear in any payload type produced by a well-typed
+   program.
+2. Even if Arrow appeared (e.g. in hand-built IR), Weave v1 has no runtime function
+   values — there is nothing to fold through at Arrow positions.
+
+`substAdt` in `subst.ts` does traverse Arrow (it is a general type-level
+substitution used by the elaborator for Pi[A/μF]). This creates a structural
+asymmetry between `substAdt` and `containsAdt`. The asymmetry is benign for the
+reasons above but should not be "fixed" by adding Arrow traversal to `containsAdt`
+without also adding runtime function values and defining their fold semantics.
 
 ---
 

@@ -16,6 +16,8 @@ import type { ElaboratedModule } from "../ir/ir.ts";
 import { type Value, VUnit, vInt, vFloat, vBool, vText } from "./value.ts";
 import { typeEq } from "../types/check.ts";
 import type { Type } from "../types/type.ts";
+import type { TypedTypeDecl } from "../typechecker/typed-ast.ts";
+import { substTyVar } from "../types/subst.ts";
 
 // ---------------------------------------------------------------------------
 // Builtin morphism implementations
@@ -131,7 +133,7 @@ export function interpret(
 ): Value {
   const graph = mod.defs.get(defName);
   if (!graph) throw new Error(`interpret: no graph for def '${defName}'`);
-  return evalGraph(graph, input, mod.defs, effects);
+  return evalGraph(graph, input, mod.defs, effects, mod.typeDecls);
 }
 
 /**
@@ -142,6 +144,7 @@ export function evalGraph(
   input: Value,
   defs: Map<string, Graph>,
   effects: EffectHandlers,
+  typeDecls: Map<string, TypedTypeDecl>,
 ): Value {
   const portValues = new Map<PortId, Value>();
   portValues.set(graph.inPort.id, input);
@@ -264,20 +267,20 @@ export function evalGraph(
           }
           const branch = node.branches.find((b) => b.tag === ctorName);
           if (!branch) throw new Error(`interpret: case .${node.field}: no branch for '${ctorName}'`);
-          portValues.set(node.output.id, evalGraph(branch.graph, { tag: "record", fields: mergedFields }, defs, effects));
+          portValues.set(node.output.id, evalGraph(branch.graph, { tag: "record", fields: mergedFields }, defs, effects, typeDecls));
         } else {
           // Plain case: input is the variant value directly
           if (v.tag !== "variant") throw new Error(`interpret: case: expected variant, got ${v.tag}`);
           const branch = node.branches.find((b) => b.tag === v.ctor);
           if (!branch) throw new Error(`interpret: case: no branch for '${v.ctor}'`);
-          portValues.set(node.output.id, evalGraph(branch.graph, v.payload, defs, effects));
+          portValues.set(node.output.id, evalGraph(branch.graph, v.payload, defs, effects, typeDecls));
         }
         break;
       }
 
       case "cata": {
         const v = getValue(node.input.id);
-        portValues.set(node.output.id, evalCata(node.algebra, node.adtTy, v, defs, effects));
+        portValues.set(node.output.id, evalCata(node.algebra, node.adtTy, v, defs, effects, typeDecls));
         break;
       }
 
@@ -297,7 +300,7 @@ export function evalGraph(
         }
         const defGraph = defs.get(node.defId);
         if (!defGraph) throw new Error(`interpret: no graph for ref '${node.defId}'`);
-        portValues.set(node.output.id, evalGraph(defGraph, inputVal, defs, effects));
+        portValues.set(node.output.id, evalGraph(defGraph, inputVal, defs, effects, typeDecls));
         break;
       }
     }
@@ -316,17 +319,11 @@ export function evalGraph(
  * The algebra is the set of branch graphs whose input types are Pi[A/μF]:
  * recursive fields already carry the carrier type A, not the raw ADT μF.
  *
- * Recursion is type-directed: we fold a sub-value only when its position in
- * the raw payload type equals adtTy (the ADT being folded). This correctly
- * handles parametric types like List (List Int) where inner and outer lists
- * share constructor names but are distinct types.
- *
- * Polynomial-functor semantics: only positions whose raw type exactly equals
- * adtTy are folded. A constructor with payload `{ children: List Tree }` hands
- * the inner Trees raw to the algebra — they are not folded. This matches the
- * classical base-functor definition (impl note 9.13) but diverges from a
- * naive reading of the spec's "recursive branches receive the already-folded
- * result". The spec should be clarified to match this behavior.
+ * Recursion is type-directed: we fold a sub-value only when its raw type
+ * equals adtTy or structurally contains adtTy (e.g. `List Tree` when folding
+ * `Tree`). For container types, `foldPayload` looks up the container's
+ * constructors in `typeDecls`, instantiates their payload types, and recurses —
+ * mirroring the type-level `substAdt` substitution at the value level.
  *
  * Mutual recursion (multiple ADT types) is not supported in v1: CataNode.adtTy
  * is a single type, so sibling-ADT positions are never folded.
@@ -345,18 +342,31 @@ function evalCata(
   value: Value,
   defs: Map<string, Graph>,
   effects: EffectHandlers,
+  typeDecls: Map<string, TypedTypeDecl>,
 ): Value {
   function fold(v: Value): Value {
     if (v.tag !== "variant") throw new Error(`interpret: cata: expected variant, got ${v.tag}`);
     const branch = algebra.find((b) => b.tag === v.ctor);
     if (!branch) throw new Error(`interpret: cata: no algebra branch for '${v.ctor}'`);
     const foldedPayload = foldPayload(v.payload, branch.rawPayloadTy);
-    return evalGraph(branch.graph, foldedPayload, defs, effects);
+    return evalGraph(branch.graph, foldedPayload, defs, effects, typeDecls);
   }
 
-  // Recursively fold sub-values at positions whose raw type equals adtTy.
+  // Returns true if ty structurally contains adtTy at any position.
+  // Arrow is intentionally not traversed: the typechecker rejects Arrow types in
+  // constructor payloads (E_ARROW_IN_PAYLOAD), so they cannot appear here in
+  // well-typed programs. Even if one did, Weave v1 has no runtime function values.
+  function containsAdt(ty: Type): boolean {
+    if (typeEq(ty, adtTy)) return true;
+    if (ty.tag === "Named") return ty.args.some(containsAdt);
+    if (ty.tag === "Record") return ty.fields.some((f) => containsAdt(f.ty));
+    return false;
+  }
+
+  // Recursively fold sub-values at positions whose raw type equals or contains adtTy.
   function foldPayload(v: Value, rawTy: Type): Value {
     if (typeEq(rawTy, adtTy)) return fold(v);
+
     if (rawTy.tag === "Record" && v.tag === "record") {
       const fields = new Map<string, Value>();
       for (const field of rawTy.fields) {
@@ -368,6 +378,46 @@ function evalCata(
       }
       return { tag: "record", fields };
     }
+
+    // Container type whose type arguments include adtTy (e.g. List Tree, Box Tree).
+    // Instantiate the container's body type with the actual type args, then recurse —
+    // mirroring substAdt at the value level. Handles both variant and record-alias bodies.
+    if (rawTy.tag === "Named" && rawTy.args.some(containsAdt)) {
+      const decl = typeDecls.get(rawTy.name);
+      if (!decl) {
+        throw new Error(`interpret: cata: container type '${rawTy.name}' not found in typeDecls — cannot fold recursive positions inside it`);
+      }
+      // Helper: substitute all type params with actual args.
+      const instantiate = (ty: Type): Type => {
+        let result = ty;
+        for (let i = 0; i < decl.params.length; i++) {
+          const param = decl.params[i];
+          const arg   = rawTy.args[i];
+          if (param !== undefined && arg !== undefined) result = substTyVar(result, param, arg);
+        }
+        return result;
+      };
+      if (decl.body.tag === "Record") {
+        // Record alias (e.g. type Box a = { item: a }): instantiate fields and recurse.
+        // Note: this path is not reachable from well-typed Weave surface programs —
+        // record aliases have no constructor so they can't appear as raw payload types
+        // in CataNode branches. Kept for completeness and hand-built IR.
+        const instantiatedTy: Type = {
+          tag: "Record",
+          fields: decl.body.fields.map((f) => ({ name: f.name, ty: instantiate(f.ty) })),
+          rest: null,
+        };
+        return foldPayload(v, instantiatedTy);
+      } else {
+        // Variant container (e.g. type List a = Nil | Cons { head: a, tail: List a }).
+        if (v.tag !== "variant") return v;
+        const ctor = decl.body.ctors.find((c) => c.name === v.ctor);
+        if (!ctor || ctor.payloadTy === null) return v;
+        const foldedPayload = foldPayload(v.payload, instantiate(ctor.payloadTy));
+        return { tag: "variant", ctor: v.ctor, payload: foldedPayload };
+      }
+    }
+
     return v;
   }
 
