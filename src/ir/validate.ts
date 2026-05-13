@@ -23,6 +23,9 @@ export function validateGraph(graph: Graph): ValidationResult {
   // IR-1b: Every node's ports are connected (no orphaned nodes or dangling inputs).
   checkNodeConnectivity(graph, errors);
 
+  // IR-1c: Every node is forward-reachable from graph.inPort or a ConstNode output.
+  checkNodeReachability(graph, errors);
+
   // IR-2: All sharing is explicit via DupNode.
   checkNoImplicitSharing(graph, errors);
 
@@ -162,6 +165,82 @@ function checkNodeConnectivity(graph: Graph, errors: ValidationError[]) {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// IR-1c: Global forward reachability from graph boundary
+//
+// Every node must be traceable from graph.inPort or a ConstNode output.
+// ConstNode outputs are treated as self-sourced boundary seeds because they
+// produce values without consuming the graph input.
+//
+// This catches cycle islands that pass IR-1b: two or more nodes in a cycle
+// via port-sharing (A → B → A) where each input is locally supplied and each
+// output is locally consumed, yet no node connects to the graph boundary.
+//
+// Known limitation: any subgraph sourced solely by ConstNodes and drained by
+// DropNodes passes this check unchallenged — including const-seeded cycles and
+// const → * → drop chains that are fully disconnected from outPort. ConstNode
+// outputs are unconditional seeds, so any node reachable from them is marked
+// reachable regardless of whether the path connects to outPort. Catching this
+// requires a full forward-backward path check, not implemented in v1. The
+// elaborator never produces such islands; they can only arise from hand-built IR.
+// ---------------------------------------------------------------------------
+
+function checkNodeReachability(graph: Graph, errors: ValidationError[]) {
+  // Build forward wire index: from → [to, ...].
+  const wireForward = new Map<PortId, PortId[]>();
+  for (const wire of graph.wires) addToMultimap(wireForward, wire.from, wire.to);
+
+  // Map each input port ID to its owning node (for through-node propagation).
+  const inputPortNode = new Map<PortId, Node>();
+  for (const node of graph.nodes) {
+    for (const p of nodeInputPorts(node)) inputPortNode.set(p.id, node);
+  }
+
+  // BFS seeds: graph.inPort + all ConstNode outputs (self-sourced).
+  const seeds: PortId[] = [graph.inPort.id];
+  for (const node of graph.nodes) {
+    if (node.kind === "const") seeds.push(node.output.id);
+  }
+
+  const reachable = new Set<PortId>(seeds);
+  const queue = [...seeds];
+  let i = 0;
+  while (i < queue.length) {
+    const p = queue[i++];
+    // Follow wires forward.
+    for (const next of wireForward.get(p) ?? []) {
+      if (!reachable.has(next)) { reachable.add(next); queue.push(next); }
+    }
+    // If p is an input port of node N, propagate to N's outputs (through-node).
+    // For multi-input nodes (TupleNode), reaching ANY input is sufficient to
+    // mark all outputs reachable. This is an intentional over-approximation:
+    // it still correctly flags fully-disconnected cycle islands (none of their
+    // inputs are ever reached), and the elaborator always supplies all inputs
+    // before producing a well-formed graph.
+    const node = inputPortNode.get(p);
+    if (node) {
+      for (const out of nodeOutputPorts(node)) {
+        if (!reachable.has(out.id)) { reachable.add(out.id); queue.push(out.id); }
+      }
+    }
+  }
+
+  for (const node of graph.nodes) {
+    if (!nodePorts(node).some((p) => reachable.has(p.id))) {
+      errors.push({
+        rule:    "IR-1",
+        message: `Node '${node.id}' (${node.kind}) is not reachable from graph.inPort or any ConstNode (orphaned)`,
+      });
+    }
+  }
+}
+
+function addToMultimap<K, V>(map: Map<K, V[]>, key: K, val: V): void {
+  const arr = map.get(key);
+  if (arr) arr.push(val);
+  else map.set(key, [val]);
 }
 
 // ---------------------------------------------------------------------------
