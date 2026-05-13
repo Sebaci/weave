@@ -10,3 +10,15 @@ def map (f : a -> b) : List a -> List b =
     Cons: { head, tail } >>>
       fanout { head: head >>> f, tail: tail } >>> Cons,
   }
+
+-- Weave v1 has no way to write a bare Int -> Int without destructuring,
+-- so elements are wrapped in a record to give the field a name.
+type Nat = | Nat { value: Int }
+
+-- double: transform for use with map.
+def double : Nat -> Nat =
+  case { Nat: { value } >>> fanout { value: value + value } >>> Nat }
+
+-- doubleAll: schema instantiation — shows map used with a real transform.
+def doubleAll : List Nat -> List Nat =
+  map(f: double)

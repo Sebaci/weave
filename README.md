@@ -265,7 +265,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.10.5** — approaching 1.0.0.
+Current stage: **v0.10.6** — approaching 1.0.0.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser

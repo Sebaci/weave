@@ -1,6 +1,6 @@
 {
   "name": "weave",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "type": "module",
   "bin": {
     "weave": "dist/weave.js"

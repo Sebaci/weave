@@ -2,7 +2,7 @@ import readline from "node:readline";
 import { resolve } from "node:path";
 import { showType } from "../typechecker/index.ts";
 import { elaborateAll } from "../elaborator/index.ts";
-import { interpret, MissingEffectHandlerError } from "../interpreter/eval.ts";
+import { interpret, MissingEffectHandlerError, RuntimeError } from "../interpreter/eval.ts";
 import { showValue, VUnit } from "../interpreter/value.ts";
 import { buildModuleGraph, type ModuleGraph, type ResolverError } from "../module/resolver.ts";
 import { checkAll, type LoadError } from "../module/loader.ts";
@@ -333,6 +333,7 @@ function evalExpr(exprText: string, session: Session): void {
       console.error(`no binding for effect '${e.op}'; use :effect ${e.op}=<builtin>`);
       return;
     }
+    if (e instanceof RuntimeError) { console.error(`runtime error: ${e.message}`); return; }
     throw e;
   }
 }
@@ -426,6 +427,7 @@ function cmdRun(args: string[], session: Session): void {
     const result = interpret(elabMod, qualName, inputValue, effects);
     if (result.tag !== "unit") console.log(showValue(result));
   } catch (e) {
+    if (e instanceof RuntimeError) { console.error(`runtime error: ${e.message}`); return; }
     if (e instanceof MissingEffectHandlerError) {
       console.error(`:run: no binding for effect '${e.op}'; use :effect ${e.op}=<builtin>`);
       return;

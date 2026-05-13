@@ -47,7 +47,10 @@ export function showValue(v: Value): string {
   switch (v.tag) {
     case "unit":    return "()";
     case "int":     return String(v.value);
-    case "float":   return String(v.value);
+    case "float": {
+      const s = String(v.value);
+      return s.includes(".") || s.includes("e") || s.includes("E") || s.includes("n") ? s : s + ".0";
+    }
     case "bool":    return String(v.value);
     case "text":    return JSON.stringify(v.value);
     case "record": {

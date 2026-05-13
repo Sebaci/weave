@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { showType } from "../typechecker/index.ts";
 import { elaborateAll } from "../elaborator/index.ts";
 import { runRepl } from "./repl.ts";
-import { interpret, MissingEffectHandlerError } from "../interpreter/eval.ts";
+import { interpret, MissingEffectHandlerError, RuntimeError } from "../interpreter/eval.ts";
 import { showValue, VUnit, type Value } from "../interpreter/value.ts";
 import { buildModuleGraph, type ModuleGraph } from "../module/resolver.ts";
 import { checkAll, type LoadError } from "../module/loader.ts";
@@ -201,6 +201,7 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
     const result = interpret(elabMod, qualDefName, inputValue, effects);
     if (result.tag !== "unit") console.log(showValue(result));
   } catch (e) {
+    if (e instanceof RuntimeError) die(`weave run: runtime error: ${e.message}`);
     if (e instanceof MissingEffectHandlerError) {
       die(`weave run: no runtime binding for effect operation '${e.op}'`);
     }

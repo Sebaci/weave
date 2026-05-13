@@ -16,8 +16,8 @@ Run with `npm run cli -- check <file>` and `npm run cli -- run <file> --def <nam
 | `pipeline.weave` | Multi-step pipeline with `fanout` and `case` |
 | `maybe.weave` | ADT `case` matching, higher-order def |
 | `safeHead.weave` | `case` with `Maybe` output |
-| `map.weave` | Higher-order `fold` (schema param) |
-| `filter.weave` | `fold` + `let` + `case .field` |
+| `map.weave` | Higher-order `fold` (schema param), concrete `doubleAll` instantiation |
+| `filter.weave` | `fold` + `let` + `case .field`, concrete `keepPositives` instantiation |
 | `fanout.weave` | Parallel field computation via `fanout` |
 | `build.weave` | Closed record construction via `build` |
 | `let.weave` | `let` binding inside `fold` |
@@ -53,11 +53,25 @@ Output: `3`
 
 ### Map over a list
 
-`map` is a schema — typecheck it to verify it compiles:
+`map` is a schema — `doubleAll` is a concrete instantiation (`map(f: double)`):
 
 ```
-npm run cli -- check examples/map.weave
+npm run cli -- run examples/map.weave --def doubleAll \
+  --input '{"tag":"Cons","head":{"tag":"Nat","value":3},"tail":{"tag":"Cons","head":{"tag":"Nat","value":5},"tail":{"tag":"Nil"}}}'
 ```
+
+Output: `Cons({ head: Nat({ value: 6 }), tail: Cons({ head: Nat({ value: 10 }), tail: Nil }) })`
+
+### Filter a list
+
+`filter` is a schema — `keepPositives` is a concrete instantiation (`filter(pred: isPositive)`):
+
+```
+npm run cli -- run examples/filter.weave --def keepPositives \
+  --input '{"tag":"Cons","head":{"tag":"Elem","value":3},"tail":{"tag":"Cons","head":{"tag":"Elem","value":-1},"tail":{"tag":"Cons","head":{"tag":"Elem","value":5},"tail":{"tag":"Nil"}}}}'
+```
+
+Output: `Cons({ head: Elem({ value: 3 }), tail: Cons({ head: Elem({ value: 5 }), tail: Nil }) })`
 
 ### Multi-step pipeline
 

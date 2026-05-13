@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.6] - 2026-05-14
+
+### Added
+- `examples/map.weave`: added `Nat` wrapper type, `double` transform, and `doubleAll` concrete schema instantiation (`map(f: double)`), mirroring the pattern in `filter.weave`. `map` was previously only checkable, not runnable.
+
+### Fixed
+- `foldPayload` now handles Named container types (e.g. `Tree (List a)`) by looking up the inner named type in the module's type declarations and recursing. Previously only bare recursive positions were pre-folded; Named wrappers containing recursive payloads were passed through unfolded, causing a runtime mismatch.
+- `checkTypeDecl` now rejects `Arrow` types in ADT constructor fields (`E_ARROW_IN_PAYLOAD`). Weave v1 has no runtime function values, so morphism types in constructor payloads are unsound. The error is attached to the field's source ID. The `containsAdt` helper in the interpreter is intentionally not updated — it cannot encounter `Arrow` in well-typed programs and v1 has no runtime function values anyway.
+- IR validation now enforces forward reachability from the graph boundary (`IR-1c`). Every node must be reachable from `graph.inPort` or a `ConstNode` output via wires or port-sharing. Previously, cycle islands (subgraphs where each node's input was locally supplied by another island node) passed IR-1b's local connectivity check but were never connected to the graph boundary; they are now flagged as orphaned. Known accepted limitation: a subgraph sourced entirely by `ConstNode`s and drained by `DropNode`s passes IR-1c, as `ConstNode` outputs are seeded unconditionally.
+- Integer division by zero now throws a `RuntimeError` with the message `"integer division by zero"`. Previously the Int branch silently returned `Infinity` (JavaScript's `Math.trunc(Infinity)`). The REPL and `weave run` both catch `RuntimeError` and display a clean error message rather than crashing with a stack trace.
+- Float values that are whole numbers now display with a `.0` suffix (e.g. `4.0` instead of `4`), making them distinguishable from Int values in REPL and `weave run` output.
+
+---
+
 ## [0.10.5] - 2026-05-13
 
 ### Fixed

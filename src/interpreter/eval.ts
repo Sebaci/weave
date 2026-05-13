@@ -33,10 +33,8 @@ const BUILTIN_MORPHISMS: Map<string, BuiltinFn> = new Map([
   ["builtin.sub",  (v) => numOp(v, (a, b) => a - b, (a, b) => a - b)],
   ["builtin.mul",  (v) => numOp(v, (a, b) => a * b, (a, b) => a * b)],
   // Int division truncates toward zero: (-7)/2 = -3, 7/(-2) = -3.
-  // Division by zero yields 0 for Int (Math.trunc(Infinity) = 0 in JS).
-  // These semantics are unspecified by the Weave v1 spec and should be treated
-  // as implementation-defined until the spec is updated.
-  ["builtin.div",  (v) => numOp(v, (a, b) => Math.trunc(a / b), (a, b) => a / b)],
+  // Division by zero is a runtime error (unspecified by v1 spec; throw is the principled choice).
+  ["builtin.div",  (v) => numOp(v, (a, b) => { if (b === 0) throw new RuntimeError("integer division by zero"); return Math.trunc(a / b); }, (a, b) => a / b)],
   ["builtin.lt",   (v) => cmpOp(v, (a, b) => a < b)],
   ["builtin.gt",   (v) => cmpOp(v, (a, b) => a > b)],
   ["builtin.leq",  (v) => cmpOp(v, (a, b) => a <= b)],
@@ -114,6 +112,14 @@ export class MissingEffectHandlerError extends Error {
   constructor(public readonly op: string) {
     super(`no runtime binding for effect operation '${op}'`);
     this.name = "MissingEffectHandlerError";
+  }
+}
+
+/** Thrown for user-visible runtime errors (e.g. division by zero). */
+export class RuntimeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RuntimeError";
   }
 }
 
