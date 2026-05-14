@@ -6,7 +6,7 @@
  * All builtin operators are pure.
  */
 
-import { type Type, TInt, TFloat, TBool, record, field, named } from "../types/type.ts";
+import { type Type, TInt, TFloat, TBool, TText, record, field, named, tyVar } from "../types/type.ts";
 
 export type BuiltinOpEntry = {
   morphismName: string;
@@ -25,7 +25,7 @@ export function lookupInfixOp(op: string): BuiltinOpEntry | null {
 
 /** All builtin operator names, for error messages. */
 export const BUILTIN_OPS: readonly string[] = [
-  "+", "-", "*", "/", "==", "!=", "<", ">", "<=", ">=", "&&", "||",
+  "+", "-", "*", "/", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "<>",
 ];
 
 // ---------------------------------------------------------------------------
@@ -45,6 +45,7 @@ const INFIX_TABLE: Record<string, BuiltinOpEntry> = {
   "!=": equalityOp("builtin.neq"),
   "&&": boolOp("builtin.and"),
   "||": boolOp("builtin.or"),
+  "<>": concatOp("builtin.concat"),
 };
 
 // ---------------------------------------------------------------------------
@@ -94,16 +95,53 @@ function equalityOp(morphismName: string): BuiltinOpEntry {
   };
 }
 
-/** Boolean operators: Bool operands, Bool result. */
+/** Text concatenation operator: { l: Text, r: Text } → Text. Rejects non-Text operands. */
+function concatOp(morphismName: string): BuiltinOpEntry {
+  return {
+    morphismName,
+    signature: (operandTy) => {
+      if (operandTy.tag !== "Text") return null;
+      return {
+        inputTy:  record([field("l", TText), field("r", TText)]),
+        outputTy: TText,
+      };
+    },
+  };
+}
+
+/** Boolean operators: Bool operands, Bool result. Rejects non-Bool operands. */
 function boolOp(morphismName: string): BuiltinOpEntry {
   return {
     morphismName,
-    signature: (_operandTy) => ({
-      inputTy:  record([field("l", TBool), field("r", TBool)]),
-      outputTy: TBool,
-    }),
+    signature: (operandTy) => {
+      if (operandTy.tag !== "Bool") return null;
+      return {
+        inputTy:  record([field("l", TBool), field("r", TBool)]),
+        outputTy: TBool,
+      };
+    },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Builtin morphism specs — seeded into every module's name environment
+// ---------------------------------------------------------------------------
+
+export type BuiltinMorphismSpec = {
+  name:     string;  // surface name, e.g. "id"
+  defId:    string;  // runtime key, e.g. "builtin.id"
+  inputTy:  Type;
+  outputTy: Type;
+};
+
+export const BUILTIN_MORPHISM_SPECS: readonly BuiltinMorphismSpec[] = [
+  { name: "id",     defId: "builtin.id",
+    inputTy: tyVar("a"), outputTy: tyVar("a") },
+  { name: "not",    defId: "builtin.not",
+    inputTy: TBool, outputTy: TBool },
+  { name: "concat", defId: "builtin.concat",
+    inputTy: record([field("l", TText), field("r", TText)]), outputTy: TText },
+];
 
 // ---------------------------------------------------------------------------
 // Builtin type names

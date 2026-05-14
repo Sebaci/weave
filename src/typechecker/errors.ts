@@ -26,6 +26,7 @@ export type ErrorCode =
   | "E_EFFECT_MISMATCH"
   | "E_TYPE_ARITY"
   // Typecheck — structure
+  | "E_RESERVED_NAME"
   | "E_ARROW_IN_PAYLOAD"
   | "E_EMPTY_PIPELINE"
   | "E_NOT_VARIANT"

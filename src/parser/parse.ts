@@ -61,6 +61,7 @@ const INFIX: Record<string, InfixEntry> = {
   ">=": { op: ">=", prec: 4 },
   "+":  { op: "+",  prec: 5 },
   "-":  { op: "-",  prec: 5 },
+  "<>": { op: "<>", prec: 5 },
   "*":  { op: "*",  prec: 6 },
   "/":  { op: "/",  prec: 6 },
 };
@@ -69,7 +70,7 @@ function infixEntry(t: Token): InfixEntry | null {
   const map: Record<TK, string | undefined> = {
     PIPEPIPE: "||", AMPAMP: "&&",
     EQEQ: "==", NEQ: "!=",
-    LT: "<", GT: ">", LEQ: "<=", GEQ: ">=",
+    LT: "<", GT: ">", LEQ: "<=", GEQ: ">=", LTGT: "<>",
     PLUS: "+", MINUS: "-", STAR: "*", SLASH: "/",
     // All other kinds — no infix
     INT: undefined, FLOAT: undefined, TEXT: undefined,

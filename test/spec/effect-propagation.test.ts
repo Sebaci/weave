@@ -31,16 +31,16 @@ const parOpDecl = mkDefDecl(
   pipeline(stepLit({ tag: "int", value: 0 })),
 );
 
-// def pureId : Int -> Int = 0  (pure pipeline stage for chaining)
+// def pureId : Int -> Int = id  (pure pipeline stage for chaining)
 const pureIdDecl = mkDefDecl(
   "pureId", [], stArrow(stBase("Int"), stBase("Int")), null,
-  pipeline(stepLit({ tag: "int", value: 0 })),
+  pipeline(stepName("id")),
 );
 
-// def seqId : Int -> Int ! sequential = 0  (sequential pipeline stage)
+// def seqId : Int -> Int ! sequential = id  (sequential pipeline stage; pure body satisfies sequential)
 const seqIdDecl = mkDefDecl(
   "seqId", [], stArrow(stBase("Int"), stBase("Int"), "sequential"), null,
-  pipeline(stepLit({ tag: "int", value: 0 })),
+  pipeline(stepName("id")),
 );
 
 // ---------------------------------------------------------------------------

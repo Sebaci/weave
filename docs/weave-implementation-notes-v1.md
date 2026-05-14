@@ -227,9 +227,12 @@ All builtin operators are pure.
 | `>=` | `geq` | `{ l: Int, r: Int }` or `{ l: Float, r: Float }` | `Bool` |
 | `&&` | `and` | `{ l: Bool, r: Bool }` | `Bool` |
 | `\|\|` | `or`  | `{ l: Bool, r: Bool }` | `Bool` |
+| `<>` | `concat` | `{ l: Text, r: Text }` | `Text` |
 
 Desugaring: `a OP b` → `fanout { l: a, r: b } >>> morphismName`.
 The morphism name is looked up by the typechecker, not the elaborator.
+
+`<>` was chosen over `++` to reserve `++` for potential future list concatenation.
 
 ### 4.3 DefParam.ty must be an Arrow type
 
@@ -318,6 +321,34 @@ at runtime when encountering a `Named` container type defined in another module.
 `typeDeclInfoToTyped` performs a straightforward field projection from
 `TypeDeclInfo` to `TypedTypeDecl`. `CtorInfo` fields `adtName`/`adtParams` are
 intentionally dropped because `TypedCtorDecl` only carries `name` and `payloadTy`.
+
+### 4.12 Builtin morphisms — id, not, concat
+
+Three morphisms are always in scope without import. They are seeded into every
+module's `defs` map by `buildEnv` before imported seeds are applied, so explicit
+imports and local defs override them.
+
+| Name | Type | Effect | Elaboration |
+|------|------|--------|-------------|
+| `id` | `a -> a` | `pure` | Direct wire — no IR node; the elaborator returns `inputPortId` unchanged |
+| `not` | `Bool -> Bool` | `pure` | `RefNode { defId: "builtin.not" }` |
+| `concat` | `{ l: Text, r: Text } -> Text` | `pure` | `RefNode { defId: "builtin.concat" }` |
+
+The `"builtin"` prefix is a reserved sentinel namespace. Module path components
+named `"builtin"` are rejected by `checkModule` with `E_RESERVED_NAME` to prevent
+user-defined `module builtin; def id` from producing a colliding `"builtin.id"`
+qualified defId that the elaborator and interpreter would misinterpret.
+
+`id` elaborates as a direct wire (no node) because it is the categorical identity
+morphism: `inPort` and `outPort` of the graph are the same port. `not` and `concat`
+elaborate as `RefNode`s resolved at runtime via the interpreter's `BUILTIN_MORPHISMS`
+table — the same mechanism used for infix operator morphisms (`builtin.add`, etc.).
+
+The `<>` operator's `concatOp.signature` returns `null` when `operandTy.tag !== "Text"`,
+causing `handleInfix` to emit `E_TYPE_MISMATCH` at typecheck time. The same guard
+applies to `boolOp` (`&&`, `||`): returning `null` for non-Bool operands ensures type
+errors are caught in the typechecker rather than silently producing an inconsistent
+typed AST that reaches elaboration.
 
 ---
 
@@ -857,7 +888,43 @@ They are not recoverable and should propagate to the top-level error boundary.
 - The interpreter performs no type checking and no error recovery beyond
   `MissingEffectHandlerError`.
 
-### 11.6 Public API facade (`src/compiler.ts`)
+### 11.6 VS Code extension LSP bundle must be rebuilt after typechecker changes
+
+The VS Code extension loads `editors/vscode/out/server.js`, which is a bundled
+snapshot of `src/lsp/server.ts` and all its transitive imports. The `out/`
+directory is gitignored, so the bundle is a local build artifact. Whenever
+`src/typechecker/`, `src/elaborator/`, `src/interpreter/`, or `src/module/`
+change in a way that affects the language behaviour visible to users (new
+builtins, new error codes, new checks), run:
+
+```
+npm run bundle:lsp
+```
+
+Otherwise the VS Code extension continues to use the previous version of the
+compiler and will not see the new behaviour (e.g. `id`, `not`, `concat` remain
+unknown names in the LSP even after `checkModule` is fixed in source).
+
+After rebuilding the bundle, the new `out/server.js` also needs to reach the
+installed extension. If the extension was installed from a `.vsix` package (the
+common case for WSL/remote development), the installed copy lives at
+`~/.vscode-server/extensions/weave-lang.weave-language-0.1.0/out/server.js`
+and is independent of the source tree. Copy the rebuilt bundle there:
+
+```
+cp editors/vscode/out/server.js \
+   ~/.vscode-server/extensions/weave-lang.weave-language-0.1.0/out/server.js
+```
+
+Then reload the VS Code window (`Developer: Reload Window`) for the new server
+to take effect. Alternatively, rebuild and reinstall the full `.vsix`:
+
+```
+cd editors/vscode && npm run package
+# then install the generated .vsix via VS Code's "Install from VSIX…" command
+```
+
+### 11.7 Public API facade (`src/compiler.ts`)
 
 - `compiler.ts` re-exports phase entry points without adding error-handling logic.
   It is a thin API boundary, not an error aggregator.

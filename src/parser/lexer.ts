@@ -23,7 +23,7 @@ export type TK =
   | "LPAREN" | "RPAREN"
   | "COMMA" | "COLON" | "EQ" | "DOT" | "PIPE" | "UNDER"
   | "PLUS" | "MINUS" | "STAR" | "SLASH"
-  | "EQEQ" | "NEQ" | "LT" | "GT" | "LEQ" | "GEQ"
+  | "EQEQ" | "NEQ" | "LT" | "GT" | "LEQ" | "GEQ" | "LTGT"
   | "AMPAMP" | "PIPEPIPE"
   | "EOF";
 
@@ -167,6 +167,7 @@ export function lex(source: string): Token[] {
         break;
       case "<":
         if (cur() === "=") { advance(); tokens.push(token("LEQ", "<=", start)); }
+        else if (cur() === ">") { advance(); tokens.push(token("LTGT", "<>", start)); }
         else tokens.push(token("LT", "<", start));
         break;
       case "=":

@@ -247,35 +247,28 @@ def filter (pred : a -> Bool ! pure) : List a -> List a ! pure =
       },
   }
 
-type Elem = | Elem { value: Int }
+def isPositive : Int -> Bool ! pure = id > 0
 
-def isPositive : Elem -> Bool ! pure =
-  case { Elem: { value } >>> (value > 0) }
-
-def keepPositives : List Elem -> List Elem ! pure =
+def keepPositives : List Int -> List Int ! pure =
   filter(pred: isPositive)
 `;
 
-function vElem(n: number): Value {
-  return vVariant("Elem", vRecord({ value: vInt(n) }));
-}
-
 test("port-counting 4a: schema instantiation filter(pred:isPositive) — [3,-1,2] keeps [3,2]", () => {
-  const input = cons(vElem(3), cons(vElem(-1), cons(vElem(2), nil)));
+  const input = cons(vInt(3), cons(vInt(-1), cons(vInt(2), nil)));
   const result = elabAndInterpret(src4, "keepPositives", input);
-  const expected = cons(vElem(3), cons(vElem(2), nil));
+  const expected = cons(vInt(3), cons(vInt(2), nil));
   expect(showValue(result)).toBe(showValue(expected));
 });
 
 test("port-counting 4b: schema instantiation filter — all negative → Nil", () => {
-  const input = cons(vElem(-1), cons(vElem(-5), nil));
+  const input = cons(vInt(-1), cons(vInt(-5), nil));
   const result = elabAndInterpret(src4, "keepPositives", input);
   expect(showValue(result)).toBe(showValue(nil));
 });
 
 test("port-counting 4c: schema instantiation filter — all positive → unchanged", () => {
-  const input = cons(vElem(1), cons(vElem(2), cons(vElem(3), nil)));
+  const input = cons(vInt(1), cons(vInt(2), cons(vInt(3), nil)));
   const result = elabAndInterpret(src4, "keepPositives", input);
-  const expected = cons(vElem(1), cons(vElem(2), cons(vElem(3), nil)));
+  const expected = cons(vInt(1), cons(vInt(2), cons(vInt(3), nil)));
   expect(showValue(result)).toBe(showValue(expected));
 });

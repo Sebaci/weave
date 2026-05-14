@@ -252,6 +252,8 @@ function elabStep(step: TypedStep, inputPortId: PortId, ctx: ElabContext): PortI
     // -----------------------------------------------------------------------
     case "Ref": {
       const { defId } = step.node;
+      // id is the categorical identity — a direct wire, no node
+      if (defId === "builtin.id") return inputPortId;
       const outPort = mkPort(step.morphTy.output);
       const inPort  = mkPort(step.morphTy.input);
       builder.wire(inputPortId, inPort.id);

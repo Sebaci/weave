@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-05-14
+
+### Added
+- Builtin morphisms `id`, `not`, and `concat` are now available in all modules without import. `id : a -> a` is the categorical identity (elaborates as a direct wire, no IR node). `not : Bool -> Bool` negates a boolean. `concat : { l: Text, r: Text } -> Text` joins two text values. All three satisfy `pure`.
+- `<>` infix operator for text concatenation: `"hello" <> " world"` desugars to `fanout { l: ..., r: ... } >>> concat` (precedence 5, same as `+`/`-`).
+- The `"builtin"` module namespace is reserved; any module whose path begins with `builtin` is rejected with `E_RESERVED_NAME`.
+- `E_RESERVED_NAME` added to the `ErrorCode` union.
+- Spec-driven regression tests for builtin morphisms, `<>`, and reserved namespace (`test/spec/builtins.test.ts`).
+- VS Code extension LSP bundle rebuilt to include all of the above — `id`, `not`, `concat`, and `<>` are now recognised by the language server.
+
+### Fixed
+- `<>` (`concat`) and `&&`/`||` (`boolOp`) operators now reject non-Text / non-Bool operands at typecheck time with `E_TYPE_MISMATCH`. Previously `concatOp` and `boolOp` ignored the resolved operand type and returned a fixed signature regardless, producing a structurally inconsistent typed AST that would only be caught (or not at all) at elaboration time.
+- Builtin seeding order: builtins are inserted first, then schema seeds overlay them, then local definitions override both. This ensures locally-defined `id` or `not` shadows the builtin as expected.
+- `examples/filter.weave`: simplified `isPositive` from a case dispatch to `id > 0` using the new builtin `id`, and removed the unnecessary `Elem` wrapper type.
+
+---
+
 ## [0.10.7] - 2026-05-14
 
 ### Fixed

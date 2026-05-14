@@ -49,7 +49,7 @@ import {
   type MorphTy, type OmegaEntry,
 } from "./typed-ast.ts";
 
-import { lookupInfixOp, resolveBuiltinType, BUILTIN_OPS } from "./builtins.ts";
+import { lookupInfixOp, resolveBuiltinType, BUILTIN_OPS, BUILTIN_MORPHISM_SPECS } from "./builtins.ts";
 import { ok, fail, typeError, collectResults, mapResult, type TypeResult, type TypeError } from "./errors.ts";
 
 // ---------------------------------------------------------------------------
@@ -154,6 +154,12 @@ export type ModuleExports = {
 };
 
 export function checkModule(mod: Module, seeds?: ModuleExports): TypeResult<TypedModule> {
+  // "builtin" is a reserved module-path component — it is the implementation's
+  // sentinel namespace for builtin morphism defIds (e.g. "builtin.id"). A user
+  // module starting with "builtin" would produce colliding qualified defIds.
+  if (mod.path[0] === "builtin") {
+    return fail([{ code: "E_RESERVED_NAME", message: `Module path component 'builtin' is reserved`, sourceId: mod.meta.id }]);
+  }
   // Pass 1: build environments from declarations
   const pass1 = buildEnv(mod, seeds);
   if (!pass1.ok) return pass1;
@@ -255,7 +261,24 @@ function buildEnv(mod: Module, seeds?: ModuleExports): TypeResult<EnvBuildResult
     seeds ? [...seeds.typeDecls].map(([k, v]) => [k, typeDeclInfoToTyped(v)]) : [],
   );
   const omega: Omega                        = new Map(seeds?.omega);
-  const defs: Map<string, DefInfo>          = new Map(seeds?.defs);
+  // --- Seed builtin morphisms (id, not, concat) at lowest priority ---
+  // Builtins are seeded first so that imported defs and local defs override them.
+  // body is never accessed for non-schema defs, so a dummy pipeline is safe.
+  const dummySpan = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
+  const defs: Map<string, DefInfo> = new Map();
+  for (const spec of BUILTIN_MORPHISM_SPECS) {
+    const info: DefInfo = {
+      name:         spec.defId,
+      params:       [],
+      morphTy:      { input: spec.inputTy, output: spec.outputTy, eff: "pure" },
+      body:         { tag: "Pipeline", steps: [], meta: { id: spec.defId, span: dummySpan } },
+      sourceId:     spec.defId,
+      intrinsicEff: "pure",
+    };
+    defs.set(spec.name, info);
+  }
+  // Imported seeds override builtins (explicit imports take precedence).
+  if (seeds?.defs) for (const [k, v] of seeds.defs) defs.set(k, v);
   const ctors: Map<string, CtorInfo>        = new Map(seeds?.ctors);
 
   // --- Collect type declarations ---

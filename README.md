@@ -272,7 +272,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.10.7** — approaching 1.0.0.
+Current stage: **v1.0.0** — stable implementation of Weave v1.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -287,6 +287,7 @@ Current stage: **v0.10.7** — approaching 1.0.0.
 * ✅ `weave run` with imports (multi-module elaboration + interpretation)
 * ✅ Structured diagnostics — error codes, source spans, source snippets with caret, `--json` output
 * ✅ VS Code extension — syntax highlighting + LSP server with diagnostics-on-save
+* ✅ Builtin morphisms: `id`, `not`, `concat`, `<>` operator
 * ✅ `--input '<json>'` — type-directed JSON input for any monomorphic def
 * ✅ `--effect <op>=<builtin>` — bind declared effect ops to host I/O (`readFile`, `writeFile`, `getEnv`, `print`)
 * ✅ `weave repl` — interactive session: load files, run defs, evaluate inline expressions, manage effect bindings

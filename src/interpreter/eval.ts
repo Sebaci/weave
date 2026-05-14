@@ -43,6 +43,14 @@ const BUILTIN_MORPHISMS: Map<string, BuiltinFn> = new Map([
   ["builtin.neq",  (v) => eqOp(v, false)],
   ["builtin.and",  (v) => boolOp(v, (a, b) => a && b)],
   ["builtin.or",   (v) => boolOp(v, (a, b) => a || b)],
+  ["builtin.not",  (v) => { if (v.tag !== "bool") throw new Error("not: expected Bool"); return vBool(!v.value); }],
+  ["builtin.concat", (v) => {
+    if (v.tag !== "record") throw new Error("concat: expected record");
+    const l = v.fields.get("l"); const r = v.fields.get("r");
+    if (!l || l.tag !== "text" || !r || r.tag !== "text") throw new Error("concat: expected { l: Text, r: Text }");
+    return vText(l.value + r.value);
+  }],
+  ["builtin.id",   (v) => v],
 ]);
 
 function getLR(v: Value, opName: string): { l: Value; r: Value } {
