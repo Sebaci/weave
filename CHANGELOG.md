@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.7] - 2026-05-14
+
+### Fixed
+- Built-in effect handler failures (bad file path, missing environment variable, wrong value shape) now produce a clean `effect 'X' failed: <message>` error instead of leaking an uncaught Node.js exception or stack trace. `readFile` and `writeFile` in particular wrap `fs` errors so a missing file produces a readable message for the user. A new `EffectHandlerError` class (alongside `RuntimeError` and `MissingEffectHandlerError`) is caught in both `weave run` and the REPL.
+- `E_ARROW_IN_PAYLOAD` was used by the typechecker's positivity check but was missing from the `ErrorCode` union, causing a TypeScript compilation error. Added to the union and added the explicit type parameter to the `typeError` call site to fix a cascading `unknown[]` type inference failure.
+- BFS loop in `checkNodeReachability` (`src/ir/validate.ts`) used `queue[i++]` without a non-null assertion, causing a TypeScript error under `noUncheckedIndexedAccess`. The while-loop condition already guarantees the element is present; added `!` to satisfy the type checker.
+
+---
+
 ## [0.10.6] - 2026-05-14
 
 ### Added

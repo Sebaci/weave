@@ -210,16 +210,22 @@ editors/
 examples/            # runnable Weave programs
 
 src/
-  ├── parser/        # surface syntax → AST
-  ├── surface/       # AST definitions & surface-level structures
-  ├── typechecker/   # typing rules, unification, effect checking
-  ├── elaborator/    # typed AST → graph IR
-  ├── ir/            # graph IR definitions & validation
-  ├── interpreter/   # graph IR evaluation
-  ├── module/        # import resolution, module graph, multi-module loader
-  ├── types/         # shared type representations
-  ├── cli/           # command-line interface
-  └── lsp/           # LSP server (diagnostics-on-save for editors)
+  ├── compiler.ts         # public compiler API (browser-safe; no Node.js deps)
+  ├── compiler-host.ts    # host abstraction interface (I/O, file resolution)
+  ├── parser/             # surface syntax → AST
+  ├── surface/            # AST definitions & surface-level structures
+  ├── typechecker/        # typing rules, unification, effect checking
+  ├── elaborator/         # typed AST → graph IR
+  ├── ir/                 # graph IR definitions & validation
+  ├── interpreter/        # graph IR evaluation
+  ├── module/             # import resolution, module graph, multi-module loader
+  ├── types/              # shared type representations
+  ├── cli/                # command-line interface (weave check / run / repl)
+  └── lsp/                # LSP server (diagnostics-on-save for editors)
+
+test/
+  ├── spec/        # spec-driven tests (one test file per language rule)
+  └── golden/      # IR snapshot tests (lock graph shape, wiring, provenance)
 ```
 
 This structure mirrors the language pipeline:
@@ -230,6 +236,7 @@ This structure mirrors the language pipeline:
 * **ir** → canonical representation
 * **interpreter** → execution
 * **module** → import resolution and multi-module coordination
+* **compiler.ts** → public API consumed by CLI, LSP, and future browser targets
 * **cli** → user-facing tooling (built on top of the compiler core)
 
 ---
@@ -265,7 +272,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v0.10.6** — approaching 1.0.0.
+Current stage: **v0.10.7** — approaching 1.0.0.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
