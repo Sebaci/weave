@@ -12,7 +12,7 @@ import {
   type JsonOutput,
 } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
-import { buildEffects, bindBothAliases } from "./effects.ts";
+import { buildEffects, bindBothAliases, EffectHandlerError } from "./effects.ts";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -204,6 +204,9 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
     if (e instanceof RuntimeError) die(`weave run: runtime error: ${e.message}`);
     if (e instanceof MissingEffectHandlerError) {
       die(`weave run: no runtime binding for effect operation '${e.op}'`);
+    }
+    if (e instanceof EffectHandlerError) {
+      die(`weave run: effect '${e.op}' failed: ${e.message}`);
     }
     throw e;
   }

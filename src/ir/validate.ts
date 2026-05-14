@@ -208,7 +208,7 @@ function checkNodeReachability(graph: Graph, errors: ValidationError[]) {
   const queue = [...seeds];
   let i = 0;
   while (i < queue.length) {
-    const p = queue[i++];
+    const p = queue[i++]!;
     // Follow wires forward.
     for (const next of wireForward.get(p) ?? []) {
       if (!reachable.has(next)) { reachable.add(next); queue.push(next); }

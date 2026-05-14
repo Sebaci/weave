@@ -13,6 +13,15 @@ export class EffectBindError extends Error {
   }
 }
 
+export class EffectHandlerError extends Error {
+  readonly op: string;
+  constructor(op: string, message: string) {
+    super(message);
+    this.op = op;
+    Object.setPrototypeOf(this, EffectHandlerError.prototype);
+  }
+}
+
 type Handler = (v: Value) => Value;
 
 export type BuiltinSpec = {
@@ -28,7 +37,7 @@ const BUILTINS: ReadonlyMap<string, BuiltinSpec> = new Map<string, BuiltinSpec>(
   ["print", {
     inputTy: TText, outputTy: TUnit, eff: "sequential",
     handler: (v) => {
-      if (v.tag !== "text") throw new Error(`print: expected Text, got ${v.tag}`);
+      if (v.tag !== "text") throw new EffectHandlerError("print", `expected Text, got ${v.tag}`);
       process.stdout.write(v.value + "\n");
       return VUnit;
     },
@@ -36,26 +45,34 @@ const BUILTINS: ReadonlyMap<string, BuiltinSpec> = new Map<string, BuiltinSpec>(
   ["readFile", {
     inputTy: TText, outputTy: TText, eff: "sequential",
     handler: (v) => {
-      if (v.tag !== "text") throw new Error(`readFile: expected Text (path), got ${v.tag}`);
-      return vText(readFileSync(v.value, "utf-8"));
+      if (v.tag !== "text") throw new EffectHandlerError("readFile", `expected Text (path), got ${v.tag}`);
+      try {
+        return vText(readFileSync(v.value, "utf-8"));
+      } catch (e) {
+        throw new EffectHandlerError("readFile", (e as NodeJS.ErrnoException).message);
+      }
     },
   }],
   ["writeFile", {
     inputTy: WRITE_FILE_INPUT, outputTy: TUnit, eff: "sequential",
     handler: (v) => {
-      if (v.tag !== "record") throw new Error(`writeFile: expected { path: Text, content: Text }, got ${v.tag}`);
+      if (v.tag !== "record") throw new EffectHandlerError("writeFile", `expected { path: Text, content: Text }, got ${v.tag}`);
       const path = v.fields.get("path");
       const content = v.fields.get("content");
-      if (!path || path.tag !== "text") throw new Error(`writeFile: field 'path' must be Text`);
-      if (!content || content.tag !== "text") throw new Error(`writeFile: field 'content' must be Text`);
-      writeFileSync(path.value, content.value, "utf-8");
+      if (!path || path.tag !== "text") throw new EffectHandlerError("writeFile", `field 'path' must be Text`);
+      if (!content || content.tag !== "text") throw new EffectHandlerError("writeFile", `field 'content' must be Text`);
+      try {
+        writeFileSync(path.value, content.value, "utf-8");
+      } catch (e) {
+        throw new EffectHandlerError("writeFile", (e as NodeJS.ErrnoException).message);
+      }
       return VUnit;
     },
   }],
   ["getEnv", {
     inputTy: TText, outputTy: TText, eff: "parallel-safe",
     handler: (v) => {
-      if (v.tag !== "text") throw new Error(`getEnv: expected Text (variable name), got ${v.tag}`);
+      if (v.tag !== "text") throw new EffectHandlerError("getEnv", `expected Text (variable name), got ${v.tag}`);
       return vText(process.env[v.value] ?? "");
     },
   }],

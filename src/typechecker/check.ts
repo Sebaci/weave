@@ -397,7 +397,7 @@ function buildTypeDecl(decl: TypeDecl, typeDecls: TypeDeclEnv): TypeResult<{ inf
           resolveSurfaceType(f.ty, decl.params, typeDecls),
           (ty) => {
             if (typeContainsArrow(ty)) {
-              return typeError(
+              return typeError<{ name: string; ty: Type }>(
                 `Constructor '${ctor.name}' field '${f.name}' has a function type — ADT constructor fields cannot hold morphism types in Weave v1`,
                 f.meta.id, "E_ARROW_IN_PAYLOAD",
               );

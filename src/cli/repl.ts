@@ -9,7 +9,7 @@ import { checkAll, type LoadError } from "../module/loader.ts";
 import { renderLoadError, renderResolverError } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
 import {
-  buildEffects, bindBothAliases, BUILTIN_NAMES,
+  buildEffects, bindBothAliases, BUILTIN_NAMES, EffectHandlerError,
 } from "./effects.ts";
 import type { ElaboratedModule } from "../ir/ir.ts";
 import type { TypedModule, MorphTy } from "../typechecker/typed-ast.ts";
@@ -334,6 +334,7 @@ function evalExpr(exprText: string, session: Session): void {
       return;
     }
     if (e instanceof RuntimeError) { console.error(`runtime error: ${e.message}`); return; }
+    if (e instanceof EffectHandlerError) { console.error(`effect '${e.op}' failed: ${e.message}`); return; }
     throw e;
   }
 }
@@ -432,6 +433,7 @@ function cmdRun(args: string[], session: Session): void {
       console.error(`:run: no binding for effect '${e.op}'; use :effect ${e.op}=<builtin>`);
       return;
     }
+    if (e instanceof EffectHandlerError) { console.error(`effect '${e.op}' failed: ${e.message}`); return; }
     throw e;
   }
 }
