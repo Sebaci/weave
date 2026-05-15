@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-05-15
+
+### Added
+- `weave ir <file> --def <name>` — exports the elaborated graph IR for a concrete (non-polymorphic) def as JSON to stdout. Works with bare names (qualified against the entry module) and pre-qualified names (`Lib.foo`) for defs from imported modules.
+- `src/ir/serialize.ts` — IR JSON serializer with stable ID normalization: node/port IDs remapped to per-graph positional labels (`p0`, `n0`, …); provenance sourceIds remapped to document-global labels (`s0`, …) so that the same surface AST node maps to the same label everywhere in the document, including across nested branch and algebra graphs. Provenance spans and roles are kept intact as the source-map for future sidebar/playground tooling.
+- Output envelope: `{ "weave": "1", "def": "<qualified-name>", "graph": { … } }`.
+
+---
+
 ## [1.0.0] - 2026-05-14
 
 ### Added

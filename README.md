@@ -122,6 +122,7 @@ weave check <file> --json                             # machine-readable JSON di
 weave run   <file> --def <name>                       # run a Unit-input def
 weave run   <file> --def <name> --input '<json>'      # run any monomorphic def with structured input
 weave run   <file> --def <name> --effect <op>=<builtin>  # bind effect ops to host implementations
+weave ir    <file> --def <name>                       # export the elaborated graph IR as JSON
 weave repl                                            # interactive REPL
 ```
 
@@ -131,6 +132,7 @@ Examples:
 weave check examples/hello.weave
 weave run   examples/build.weave --def origin
 weave run   examples/sum.weave   --def sum --input '{"tag":"Cons","head":1,"tail":{"tag":"Cons","head":2,"tail":{"tag":"Nil"}}}'
+weave ir    examples/filter.weave --def keepPositives
 ```
 
 ### REPL
@@ -272,7 +274,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v1.0.0** — stable implementation of Weave v1.
+Current stage: **v1.1.0** — IR JSON export.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -280,7 +282,7 @@ Current stage: **v1.0.0** — stable implementation of Weave v1.
 * ✅ Elaboration rules & elaborator (typed AST → Graph IR)
 * ✅ Graph IR with IR validator
 * ✅ Interpreter (graph IR evaluation)
-* ✅ CLI (`weave check`, `weave run`, `weave run --input`, `weave repl`) — installable via `npm link`
+* ✅ CLI (`weave check`, `weave run`, `weave run --input`, `weave ir`, `weave repl`) — installable via `npm link`
 * ✅ Example programs (`let`, `over`, `build`, `fold`, `fanout`, effects, higher-order, `case .field`, tree fold, file I/O)
 * ✅ Module system — import resolution, cycle detection, multi-module typechecking
 * ✅ Qualified name resolution in pipelines (`Foo.Bar.myDef`)
@@ -293,18 +295,24 @@ Current stage: **v1.0.0** — stable implementation of Weave v1.
 * ✅ `weave repl` — interactive session: load files, run defs, evaluate inline expressions, manage effect bindings
 * ✅ Spec-driven test suite and golden IR snapshot tests
 * ✅ Public compiler API (`src/compiler.ts`) — browser-safe core, no Node.js dependencies
+* ✅ `weave ir` — export elaborated graph IR as stable JSON (normalized IDs, source-map provenance)
 
 ---
 
 ## 🔮 Future Directions
 
-Planned extensions:
+Near-term (1.x):
+
+* **1.2** — Browser-safe core split; in-memory module resolver; GitHub Pages playground
+* **1.3** — Graph viewer: visualize the IR alongside source code
+* **1.4+** — Rewrite system; visual rewrite exploration
+
+Language extensions (later):
 
 * Open variants (row types for unions)
 * Advanced recursion schemes
 * General recursion (`trace`)
 * Algebraic effect handlers
-* Graph visualization tools
 * Optimization & rewrite engine
 
 ---

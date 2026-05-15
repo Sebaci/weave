@@ -13,6 +13,7 @@ import {
 } from "./diagnostics.ts";
 import { decodeInput, InputDecodeError } from "./input.ts";
 import { buildEffects, bindBothAliases, EffectHandlerError } from "./effects.ts";
+import { serializeGraph } from "../ir/serialize.ts";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -52,6 +53,19 @@ if (command === "check") {
     die(USAGE);
   }
   runRun(filePath, defName, inputJson, effectBindings);
+} else if (command === "ir") {
+  let defName: string | undefined;
+  const USAGE = "Usage: weave ir <file> --def <name>";
+  const args = [...rest];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--def" && args[i + 1]) {
+      defName = args[++i];
+    } else {
+      die(USAGE);
+    }
+  }
+  if (!filePath || !defName) die(USAGE);
+  runIr(filePath, defName);
 } else if (command === "repl") {
   if (filePath !== undefined || rest.length > 0) {
     die("Usage: weave repl");
@@ -61,6 +75,7 @@ if (command === "check") {
   console.error("Usage:");
   console.error("  weave check <file> [--json]");
   console.error("  weave run <file> --def <name> [--input '<json>'] [--effect <op>=<builtin>]...");
+  console.error("  weave ir <file> --def <name>");
   console.error("  weave repl");
   console.error("");
   console.error("Note: effect ops named 'print' are automatically bound to the print builtin.");
@@ -210,6 +225,58 @@ function runRun(file: string, defName: string, inputJson?: string, effectBinding
     }
     throw e;
   }
+}
+
+function runIr(file: string, defName: string): void {
+  const graphResult = buildModuleGraph(file);
+  if (!graphResult.ok) {
+    for (const err of graphResult.errors) {
+      console.error(renderResolverError(err, graphResult.sources));
+    }
+    process.exit(1);
+  }
+
+  const sources = graphSources(graphResult.graph);
+  const absFile  = resolve(file);
+  const loadResult = checkAll(graphResult.graph, absFile);
+  if (!loadResult.ok) {
+    for (const err of loadResult.errors) {
+      console.error(renderLoadError(err, sources.get(err.filePath)));
+    }
+    process.exit(1);
+  }
+
+  const elabResult = elaborateAll(loadResult.modules);
+  if (!elabResult.ok) {
+    for (const err of elabResult.errors) {
+      const loadErr: LoadError = { code: err.code, phase: "elaborate", filePath: file, message: err.message, span: err.span };
+      console.error(renderLoadError(loadErr, undefined));
+    }
+    process.exit(1);
+  }
+  const elabMod = elabResult.value;
+
+  const mod = graphResult.graph.get(absFile)!.mod;
+  const modulePrefix = mod.path.join(".");
+
+  // Pre-qualified names (contain ".") are looked up directly.
+  // Bare names are qualified with the entry module prefix.
+  const qualDefName = defName.includes(".")
+    ? defName
+    : (modulePrefix ? `${modulePrefix}.${defName}` : defName);
+
+  const graph = elabMod.defs.get(qualDefName);
+  if (!graph) {
+    if (!defName.includes(".")) {
+      const typedMod = loadResult.modules.get(absFile);
+      if (typedMod?.typedDefs.has(defName)) {
+        die(`weave ir: def '${defName}' is polymorphic and has no concrete IR graph`);
+      }
+    }
+    die(`weave ir: no def '${qualDefName}' in elaborated program`);
+  }
+
+  process.stdout.write(JSON.stringify(serializeGraph(qualDefName, graph), null, 2) + "\n");
 }
 
 // ---------------------------------------------------------------------------
