@@ -38,6 +38,12 @@ export type { EffectHandlers } from "./interpreter/eval.ts";
 // ---------------------------------------------------------------------------
 
 export type { ModuleGraph, ModuleGraphNode } from "./module/resolver.ts";
+
+// ---------------------------------------------------------------------------
+// In-memory module resolution (browser-safe)
+// ---------------------------------------------------------------------------
+
+export { buildMemoryModuleGraph } from "./module/memory-resolver.ts";
 export type { ElaboratedModule } from "./ir/ir.ts";
 export type { TypedModule } from "./typechecker/typed-ast.ts";
 export type { Value } from "./interpreter/value.ts";
