@@ -75,7 +75,8 @@ test("multi-file: missing dep", () => {
   }
 });
 
-test("nested import: resolved relative to importing file's directory", () => {
+test("nested import: resolved against entry root, not importing file's dir", () => {
+  // import Lib.Utils from /entry.weave → /Lib/Utils.weave (entry-root-relative)
   const files = new Map([
     ["/entry.weave",     `import Lib.Utils\ndef main : Int -> Int ! pure = Lib.Utils.pass`],
     ["/Lib/Utils.weave", `def pass : Int -> Int ! pure = id`],
@@ -85,6 +86,22 @@ test("nested import: resolved relative to importing file's directory", () => {
   if (r.ok) {
     expect(r.graph.has("/Lib/Utils.weave")).toBe(true);
     expect(r.graph.get("/entry.weave")?.depPaths).toEqual(["/Lib/Utils.weave"]);
+  }
+});
+
+test("second-level import resolves against entry root, not importer dir", () => {
+  // /Lib/Utils.weave imports Common → /Common.weave (entry root), NOT /Lib/Common.weave
+  const files = new Map([
+    ["/entry.weave",     `import Lib.Utils\ndef main : Int -> Int ! pure = Lib.Utils.pass`],
+    ["/Lib/Utils.weave", `import Common\ndef pass : Int -> Int ! pure = Common.util`],
+    ["/Common.weave",    `module Common\ndef util : Int -> Int ! pure = id`],
+  ]);
+  const r = buildMemoryModuleGraph(files, "/entry.weave");
+  expect(r.ok).toBe(true);
+  if (r.ok) {
+    expect(r.graph.has("/Common.weave")).toBe(true);
+    expect(r.graph.has("/Lib/Common.weave")).toBe(false);
+    expect(r.graph.get("/Lib/Utils.weave")?.depPaths).toEqual(["/Common.weave"]);
   }
 });
 

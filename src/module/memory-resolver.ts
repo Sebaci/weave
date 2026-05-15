@@ -10,9 +10,9 @@ function virtualDir(filePath: string): string {
   return lastSlash <= 0 ? "/" : filePath.slice(0, lastSlash);
 }
 
-/** Resolve import path segments relative to the importing file's directory. */
-function resolveVirtualPath(importPath: string[], fromDir: string): string {
-  const base = fromDir === "/" ? "" : fromDir;
+/** Resolve import path segments against the fixed entry-directory root. */
+function resolveVirtualPath(importPath: string[], root: string): string {
+  const base = root === "/" ? "" : root;
   return `${base}/${importPath.join("/")}.weave`;
 }
 
@@ -25,13 +25,15 @@ function resolveVirtualPath(importPath: string[], fromDir: string): string {
  * No filesystem access — safe for browser and test contexts.
  *
  * Virtual paths are slash-separated (e.g. "/entry.weave", "/Lib/foo.weave").
- * Imports are resolved relative to the importing file's directory, mirroring
- * the behaviour of buildModuleGraph in resolver.ts.
+ * All imports are resolved against the entry file's directory (the root), not
+ * the importing file's directory — matching buildModuleGraph in resolver.ts,
+ * where root = dirname(absEntry) is fixed for the entire traversal.
  */
 export function buildMemoryModuleGraph(
   files:     Map<string, string>,
   entryPath: string,
 ): ResolveResult {
+  const root   = virtualDir(entryPath); // fixed for all imports, mirrors resolver.ts
   const graph:   ModuleGraph         = new Map();
   const errors:  ResolverError[]     = [];
   const sources: Map<string, string> = new Map();
@@ -67,12 +69,11 @@ export function buildMemoryModuleGraph(
     }
 
     const mod = parseResult.value;
-    const dir = virtualDir(filePath);
     gray.add(filePath);
 
     const depPaths: string[] = [];
     for (const imp of mod.imports) {
-      const depPath = resolveVirtualPath(imp.path, dir);
+      const depPath = resolveVirtualPath(imp.path, root);
       depPaths.push(depPath);
       visit(depPath, filePath);
     }
