@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weave Playground</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <span class="logo">Weave</span>
+    <span class="subtitle">Playground</span>
+  </header>
+
+  <main class="workspace">
+    <div class="editor-pane">
+      <div id="editor"></div>
+    </div>
+
+    <div class="output-pane">
+      <section class="panel" id="diagnostics-panel">
+        <div class="panel-header">Diagnostics</div>
+        <div id="diagnostics-content" class="panel-body">
+          <span class="ok-msg">No errors.</span>
+        </div>
+      </section>
+
+      <section class="panel" id="ir-panel">
+        <div class="panel-header">
+          IR JSON
+          <select id="def-select" title="Select def"></select>
+        </div>
+        <pre id="ir-json" class="panel-body ir-body"></pre>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="dist/main.js"></script>
+</body>
+</html>

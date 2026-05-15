@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- `buildMemoryModuleGraph(files, entryPath)` — in-memory equivalent of `buildModuleGraph` with no Node.js dependencies. Takes a `Map<string, string>` of virtual path → source and returns the same `ResolveResult` / `ModuleGraph` types. All imports are resolved against the entry file's directory (matching the Node resolver's fixed-root contract). Exported from `compiler.ts` so browser and test consumers can use the full compile pipeline without `compiler-host.ts`.
+
+---
+
 ## [1.1.0] - 2026-05-15
 
 ### Added

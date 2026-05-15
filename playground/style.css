@@ -1,0 +1,129 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #f8f9fa;
+  --surface:    #ffffff;
+  --border:     #dee2e6;
+  --header-bg:  #1a1a2e;
+  --header-fg:  #e0e0e0;
+  --accent:     #4a90d9;
+  --error-bg:   #fff5f5;
+  --error-fg:   #c0392b;
+  --ok-fg:      #27ae60;
+  --mono:       "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --sans:       system-ui, sans-serif;
+  --header-h:   48px;
+}
+
+html, body { height: 100%; font-family: var(--sans); background: var(--bg); }
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+header {
+  height: var(--header-h);
+  background: var(--header-bg);
+  color: var(--header-fg);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 10px;
+  user-select: none;
+}
+header .logo    { font-weight: 700; font-size: 1.1rem; color: #fff; }
+header .subtitle{ font-size: 0.85rem; color: #888; }
+
+/* ── Workspace ────────────────────────────────────────────────────────── */
+.workspace {
+  display: flex;
+  height: calc(100vh - var(--header-h));
+}
+
+/* ── Editor pane ──────────────────────────────────────────────────────── */
+.editor-pane {
+  flex: 0 0 55%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+#editor {
+  flex: 1;
+  overflow: auto;
+  font-size: 14px;
+}
+
+/* Force CodeMirror to fill its container */
+#editor .cm-editor { height: 100%; }
+#editor .cm-scroller { overflow: auto; }
+
+/* ── Output pane ──────────────────────────────────────────────────────── */
+.output-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Panel ────────────────────────────────────────────────────────────── */
+.panel {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+#diagnostics-panel { flex: 0 0 35%; }
+#ir-panel          { flex: 1; }
+
+.panel-header {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #555;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  background: var(--surface);
+}
+
+/* ── Diagnostics ──────────────────────────────────────────────────────── */
+.ok-msg    { color: var(--ok-fg); }
+.diag-item { color: var(--error-fg); margin-bottom: 4px; }
+.diag-item .diag-loc { color: #888; margin-right: 6px; }
+
+/* ── IR JSON ──────────────────────────────────────────────────────────── */
+.ir-body {
+  white-space: pre;
+  color: #2c3e50;
+}
+
+/* ── Def selector ─────────────────────────────────────────────────────── */
+#def-select {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: #333;
+  cursor: pointer;
+}
+#def-select:disabled { opacity: 0.4; }
+
+/* ── CodeMirror overrides ─────────────────────────────────────────────── */
+.cm-editor { font-family: var(--mono) !important; }
+.cm-lint-marker-error { display: block; }

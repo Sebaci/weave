@@ -14,12 +14,15 @@
     "bundle:lsp": "esbuild src/lsp/server.ts --bundle --platform=node --format=cjs --define:import.meta.url='\"file:///server.js\"' --outfile=editors/vscode/out/server.js",
     "build:ext": "npm --prefix editors/vscode install && npm --prefix editors/vscode run compile",
     "package:ext": "npm --prefix editors/vscode run package",
+    "bundle": "esbuild playground/src/main.ts --bundle --format=esm --target=es2022 --outdir=playground/dist --sourcemap",
+    "playground": "npm run bundle && npx serve playground",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@types/vscode": "^1.118.0",
+    "codemirror": "^6.0.2",
     "esbuild": "^0.28.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",

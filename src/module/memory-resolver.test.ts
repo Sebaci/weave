@@ -33,7 +33,7 @@ test("single file: missing entry", () => {
   const r = buildMemoryModuleGraph(new Map(), "/entry.weave");
   expect(r.ok).toBe(false);
   if (!r.ok) {
-    expect(r.errors[0].tag).toBe("not-found");
+    expect(r.errors[0]?.tag).toBe("not-found");
   }
 });
 
@@ -41,7 +41,7 @@ test("single file: parse error", () => {
   const r = buildMemoryModuleGraph(single(`def bad`), "/entry.weave");
   expect(r.ok).toBe(false);
   if (!r.ok) {
-    expect(r.errors[0].tag).toBe("parse-error");
+    expect(r.errors[0]?.tag).toBe("parse-error");
   }
 });
 
@@ -67,10 +67,11 @@ test("multi-file: missing dep", () => {
   expect(r.ok).toBe(false);
   if (!r.ok) {
     const err = r.errors[0];
-    expect(err.tag).toBe("not-found");
-    if (err.tag === "not-found") {
+    if (err?.tag === "not-found") {
       expect(err.filePath).toBe("/Missing.weave");
       expect(err.importedBy).toBe("/entry.weave");
+    } else {
+      expect(err?.tag).toBe("not-found"); // force failure with useful message
     }
   }
 });
