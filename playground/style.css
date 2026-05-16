@@ -112,6 +112,9 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
   overflow: auto;
 }
 
+.graph-body g.node { cursor: pointer; }
+.graph-body g.node:hover { filter: brightness(0.88) drop-shadow(0 2px 6px rgba(0,0,0,0.22)); }
+
 /* ── IR JSON ──────────────────────────────────────────────────────────── */
 .ir-body {
   white-space: pre;
@@ -134,3 +137,6 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
 /* ── CodeMirror overrides ─────────────────────────────────────────────── */
 .cm-editor { font-family: var(--mono) !important; }
 .cm-lint-marker-error { display: block; }
+
+/* ── Provenance highlight ─────────────────────────────────────────────── */
+.cm-provenance-hl { background-color: rgba(251, 191, 36, 0.35); border-radius: 2px; }

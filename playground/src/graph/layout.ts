@@ -15,6 +15,7 @@
  */
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import type { Graph, Node, PortId } from "../../../src/ir/ir.ts";
+import type { SourceNodeId, SourceSpan } from "../../../src/surface/id.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -46,12 +47,14 @@ export type RenderedNode = {
   id:       string;
   label:    string;
   kind:     string;
+  tooltip:  string;
   x:        number;
   y:        number;
   width:    number;
   height:   number;
   inPorts:  RenderedPort[];
   outPorts: RenderedPort[];
+  span?:    SourceSpan;
 };
 
 export type RenderedEdge = {
@@ -122,6 +125,30 @@ function nodeLabel(node: Node): string {
 }
 
 // ---------------------------------------------------------------------------
+// Node tooltip (richer than label — shown on hover)
+// ---------------------------------------------------------------------------
+
+function nodeTooltip(node: Node): string {
+  switch (node.kind) {
+    case "ref":    return `ref: ${node.defId}`;
+    case "const": {
+      const v = node.value;
+      if (v.tag === "text")  return `const: "${v.value}"`;
+      if (v.tag === "unit")  return "const: ()";
+      return `const: ${String(v.value)}`;
+    }
+    case "dup":    return `dup × ${node.outputs.length}`;
+    case "proj":   return `.${node.field}`;
+    case "ctor":   return `ctor: ${node.ctorName}`;
+    case "effect": return `effect: ${node.op}`;
+    case "tuple":  return `tuple {${node.inputs.map(i => i.label).join(", ")}}`;
+    case "case":   return node.field ? `case .${node.field}` : "case";
+    case "cata":   return "fold (catamorphism)";
+    case "drop":   return "drop (discard input)";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Port y-position within a node (centered around node.y)
 // ---------------------------------------------------------------------------
 
@@ -133,7 +160,7 @@ function portY(nodeY: number, index: number, total: number): number {
 // Main layout function
 // ---------------------------------------------------------------------------
 
-export function layoutGraph(graph: Graph): RenderedLayout {
+export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan>): RenderedLayout {
   // ── Collect all port → owner-node mappings ──────────────────────────────
   //
   // outPorts: portId → nodeId that produces this port as an output
@@ -236,16 +263,30 @@ export function layoutGraph(graph: Graph): RenderedLayout {
     const isSource = nodeId === SOURCE_ID;
     const isSink   = nodeId === SINK_ID;
 
+    const span = (() => {
+      for (const p of (irNode?.provenance ?? [])) {
+        const s = (spanMap && spanMap.get(p.sourceId)) ?? p.span;
+        if (s) return s;
+      }
+      return undefined;
+    })();
+
+    const tooltip = isSource ? "graph input port"
+      : isSink   ? "graph output port"
+      : nodeTooltip(irNode!);
+
     renderedNodes.push({
       id:       nodeId,
       label:    isSource ? "in" : isSink ? "out" : nodeLabel(irNode!),
       kind:     isSource ? "source" : isSink ? "sink" : (irNode?.kind ?? "unknown"),
+      tooltip,
       x:        n.x,
       y:        n.y,
       width:    n.width,
       height:   n.height,
       inPorts:  inPortsR,
       outPorts: outPortsR,
+      span,
     });
   }
 

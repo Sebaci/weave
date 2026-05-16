@@ -81,7 +81,9 @@ function renderNode(
     }),
   ].join("");
 
-  return `<g class="node" data-id="${n.id}" data-kind="${n.kind}">${rect}${label}${circles}</g>`;
+  const spanAttr = n.span ? ` data-span="${esc(JSON.stringify(n.span))}"` : "";
+  const title = `<title>${esc(n.tooltip)}</title>`;
+  return `<g class="node" data-id="${n.id}" data-kind="${n.kind}"${spanAttr}>${title}${rect}${label}${circles}</g>`;
 }
 
 export function renderGraphSVG(layout: RenderedLayout): string {
