@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] - 2026-05-16
+
+### Added
+- **Share button** in the playground header — encodes the current editor source and selected def into the URL hash (`#code/<base64url>&def=<name>`), copies the link to the clipboard, and restores both on load.
+
+### Fixed
+- Module-qualified names (e.g. `Examples.Pipeline.sum`) are now displayed as short names (`sum`) in the Core IR view.
+
+---
+
 ## [1.2.0] - 2026-05-16
 
 ### Added
