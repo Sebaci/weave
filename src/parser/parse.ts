@@ -509,7 +509,7 @@ class Parser {
     // Boolean literals (uppercase but not constructors)
     if (t.kind === "UPPER" && (t.text === "True" || t.text === "False")) {
       this.advance();
-      return { tag: "Literal", value: { tag: "bool", value: t.text === "True" }, meta: this.mkSpan(start) };
+      return { tag: "Literal", value: { tag: "bool", value: t.text === "True" }, meta: this.mk(t.span) };
     }
 
     // Uppercase: qualified name (Foo.Bar.baz) or constructor
@@ -519,7 +519,7 @@ class Parser {
         return this.parseQualifiedName(start);
       }
       this.advance();
-      return { tag: "Ctor", name: t.text, meta: this.mkSpan(start) };
+      return { tag: "Ctor", name: t.text, meta: this.mk(t.span) };
     }
 
     // Lowercase identifier: name or schema instantiation
@@ -529,32 +529,32 @@ class Parser {
       if (this.cur().kind === "LPAREN" && this.isSchemaInstStart()) {
         return this.parseSchemaInstTail(t.text, start);
       }
-      return { tag: "Name", name: t.text, meta: this.mkSpan(start) };
+      return { tag: "Name", name: t.text, meta: this.mk(t.span) };
     }
 
     // Projection: .fieldName
     if (t.kind === "DOT") {
       this.advance();
-      const field = this.expect("IDENT", "Expected field name after '.'").text;
-      return { tag: "Projection", field, meta: this.mkSpan(start) };
+      const fieldTok = this.expect("IDENT", "Expected field name after '.'");
+      return { tag: "Projection", field: fieldTok.text, meta: this.mk(spanMerge(start, fieldTok.span)) };
     }
 
     // Integer literal
     if (t.kind === "INT") {
       this.advance();
-      return { tag: "Literal", value: { tag: "int", value: parseInt(t.text, 10) }, meta: this.mkSpan(start) };
+      return { tag: "Literal", value: { tag: "int", value: parseInt(t.text, 10) }, meta: this.mk(t.span) };
     }
 
     // Float literal
     if (t.kind === "FLOAT") {
       this.advance();
-      return { tag: "Literal", value: { tag: "float", value: parseFloat(t.text) }, meta: this.mkSpan(start) };
+      return { tag: "Literal", value: { tag: "float", value: parseFloat(t.text) }, meta: this.mk(t.span) };
     }
 
     // Text literal
     if (t.kind === "TEXT") {
       this.advance();
-      return { tag: "Literal", value: { tag: "text", value: t.text }, meta: this.mkSpan(start) };
+      return { tag: "Literal", value: { tag: "text", value: t.text }, meta: this.mk(t.span) };
     }
 
     this.err(`Unexpected token '${t.text || t.kind}' in expression`);
@@ -653,10 +653,10 @@ class Parser {
     while (this.eat("COMMA") && this.cur().kind !== "RBRACE")
       branches.push(this.parseBranch());
     this.eat("COMMA"); // trailing comma
-    this.expect("RBRACE");
+    const rbrace = this.expect("RBRACE");
     return field !== undefined
-      ? { tag: "Case", field, branches, meta: this.mkSpan(start) }
-      : { tag, branches, meta: this.mkSpan(start) };
+      ? { tag: "Case", field, branches, meta: this.mk(spanMerge(start, rbrace.span)) }
+      : { tag, branches, meta: this.mk(spanMerge(start, rbrace.span)) };
   }
 
   parseBranch(): Branch {
@@ -722,8 +722,8 @@ class Parser {
         fields.push(this.parseBuildField());
     }
     this.eat("COMMA");
-    this.expect("RBRACE");
-    return { tag: "Build", fields, meta: this.mkSpan(start) };
+    const rbraceBuild = this.expect("RBRACE");
+    return { tag: "Build", fields, meta: this.mk(spanMerge(start, rbraceBuild.span)) };
   }
 
   parseBuildField(): BuildField {
@@ -749,8 +749,8 @@ class Parser {
         fields.push(this.parseFanoutField());
     }
     this.eat("COMMA");
-    this.expect("RBRACE");
-    return { tag: "Fanout", fields, meta: this.mkSpan(start) };
+    const rbraceFanout = this.expect("RBRACE");
+    return { tag: "Fanout", fields, meta: this.mk(spanMerge(start, rbraceFanout.span)) };
   }
 
   parseFanoutField(): FanoutField {
