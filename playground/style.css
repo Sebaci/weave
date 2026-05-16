@@ -72,8 +72,9 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
   overflow: hidden;
 }
 
-#diagnostics-panel { flex: 0 0 35%; }
-#ir-panel          { flex: 1; }
+#diagnostics-panel { flex: 0 0 22%; }
+#graph-panel       { flex: 1; }
+#ir-panel          { flex: 0 0 28%; }
 
 .panel-header {
   background: var(--bg);
@@ -104,6 +105,12 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
 .ok-msg    { color: var(--ok-fg); }
 .diag-item { color: var(--error-fg); margin-bottom: 4px; }
 .diag-item .diag-loc { color: #888; margin-right: 6px; }
+
+/* ── Graph SVG ────────────────────────────────────────────────────────── */
+.graph-body {
+  padding: 0;
+  overflow: auto;
+}
 
 /* ── IR JSON ──────────────────────────────────────────────────────────── */
 .ir-body {

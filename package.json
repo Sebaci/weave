@@ -20,6 +20,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@types/node": "^25.6.0",
     "@types/vscode": "^1.118.0",
     "codemirror": "^6.0.2",

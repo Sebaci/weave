@@ -2,6 +2,8 @@ import { basicSetup } from "codemirror";
 import { EditorView }  from "@codemirror/view";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { weaveLang } from "./weave-lang.ts";
+import { layoutGraph } from "./graph/layout.ts";
+import { renderGraphSVG } from "./graph/render.ts";
 import { buildMemoryModuleGraph, checkAll, elaborateAll } from "../../src/compiler.ts";
 import { serializeGraph } from "../../src/ir/serialize.ts";
 import { resetElabCounters } from "../../src/elaborator/index.ts";
@@ -15,6 +17,7 @@ import type { Text } from "@codemirror/state";
 
 const diagContent = document.getElementById("diagnostics-content")!;
 const irJson      = document.getElementById("ir-json")!;
+const graphSvgEl  = document.getElementById("graph-svg")!;
 const defSelect   = document.getElementById("def-select") as HTMLSelectElement;
 
 // ---------------------------------------------------------------------------
@@ -37,10 +40,7 @@ function posToOffset(doc: Text, pos: Position): number {
 let currentElabMod: ElaboratedModule | null = null;
 
 function refreshIRPanel(): void {
-  if (!currentElabMod) {
-    irJson.textContent = "";
-    return;
-  }
+  if (!currentElabMod) { irJson.textContent = ""; return; }
   const defName = defSelect.value;
   if (!defName) { irJson.textContent = ""; return; }
   const graph = currentElabMod.defs.get(defName);
@@ -48,7 +48,16 @@ function refreshIRPanel(): void {
   irJson.textContent = JSON.stringify(serializeGraph(defName, graph), null, 2);
 }
 
-defSelect.addEventListener("change", refreshIRPanel);
+function refreshGraphPanel(): void {
+  if (!currentElabMod) { graphSvgEl.innerHTML = ""; return; }
+  const defName = defSelect.value;
+  if (!defName) { graphSvgEl.innerHTML = ""; return; }
+  const graph = currentElabMod.defs.get(defName);
+  if (!graph)  { graphSvgEl.innerHTML = ""; return; }
+  graphSvgEl.innerHTML = renderGraphSVG(layoutGraph(graph));
+}
+
+defSelect.addEventListener("change", () => { refreshIRPanel(); refreshGraphPanel(); });
 
 function updateDefSelector(names: string[]): void {
   const prev = defSelect.value;
@@ -168,6 +177,7 @@ const weaveLinter = linter(
     const defNames = [...er.value.defs.keys()];
     updateDefSelector(defNames);
     refreshIRPanel();
+    refreshGraphPanel();
     renderDiagnostics([], source);
     return [];
   },
