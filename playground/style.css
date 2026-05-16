@@ -30,6 +30,19 @@ header {
 }
 header .logo    { font-weight: 700; font-size: 1.1rem; color: #fff; }
 header .subtitle{ font-size: 0.85rem; color: #888; }
+.share-btn {
+  margin-left: auto;
+  padding: 5px 14px;
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: var(--header-fg);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.share-btn:hover  { background: rgba(255,255,255,0.08); border-color: #888; }
+.share-btn.copied { background: #1e5c2e; border-color: #2ecc71; color: #2ecc71; }
 
 /* ── Workspace ────────────────────────────────────────────────────────── */
 .workspace {

@@ -414,7 +414,9 @@ irCore.addEventListener("mouseover", (e) => {
 irCore.addEventListener("mouseleave", () => clearProvenance());
 
 function updateDefSelector(names: string[]): void {
-  const prev = defSelect.value;
+  const prev   = defSelect.value;
+  const target = pendingDef ?? prev;
+  pendingDef   = null;
   defSelect.innerHTML = "";
   for (const name of names) {
     const opt = document.createElement("option");
@@ -422,8 +424,7 @@ function updateDefSelector(names: string[]): void {
     opt.textContent = name;
     defSelect.appendChild(opt);
   }
-  // Restore selection if still valid, else pick first
-  defSelect.value = names.includes(prev) ? prev : (names[0] ?? "");
+  defSelect.value    = names.includes(target) ? target : (names[0] ?? "");
   defSelect.disabled = names.length === 0;
 }
 
@@ -540,15 +541,81 @@ const weaveLinter = linter(
 );
 
 // ---------------------------------------------------------------------------
+// Share — encode/decode editor content in the URL hash
+// ---------------------------------------------------------------------------
+
+function encodeCode(code: string): string {
+  const bytes  = new TextEncoder().encode(code);
+  const binary = Array.from(bytes, b => String.fromCharCode(b)).join("");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+function decodeCode(encoded: string): string | null {
+  try {
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(base64);
+    const bytes  = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)!;
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function parseHash(): { code: string | null; def: string | null } {
+  const hash   = window.location.hash;
+  const prefix = "#code/";
+  if (!hash.startsWith(prefix)) return { code: null, def: null };
+  const rest   = hash.slice(prefix.length);
+  const defIdx = rest.indexOf("&def=");
+  if (defIdx === -1) return { code: decodeCode(rest), def: null };
+  return {
+    code: decodeCode(rest.slice(0, defIdx)),
+    def:  decodeURIComponent(rest.slice(defIdx + 5)),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Editor setup
 // ---------------------------------------------------------------------------
 
-const INITIAL_SOURCE = `def exclaim : Text -> Text ! pure =
+const DEFAULT_SOURCE = `def exclaim : Text -> Text ! pure =
   id <> "!"
 `;
 
+const { code: urlCode, def: urlDef } = parseHash();
+let pendingDef: string | null = urlDef;
+
 const view = new EditorView({
-  doc:        INITIAL_SOURCE,
+  doc:        urlCode ?? DEFAULT_SOURCE,
   extensions: [basicSetup, weaveLang, lintGutter(), weaveLinter, provenanceField],
   parent:     document.getElementById("editor")!,
+});
+
+// ---------------------------------------------------------------------------
+// Share button
+// ---------------------------------------------------------------------------
+
+const shareBtn = document.getElementById("share-btn") as HTMLButtonElement;
+
+shareBtn.addEventListener("click", () => {
+  const code    = view.state.doc.toString();
+  const encoded = encodeCode(code);
+  const defName = defSelect.value;
+  const defPart = defName ? `&def=${encodeURIComponent(defName)}` : "";
+  const hash    = `#code/${encoded}${defPart}`;
+  const url     = `${window.location.origin}${window.location.pathname}${hash}`;
+  window.history.replaceState(null, "", hash);
+  navigator.clipboard.writeText(url).then(() => {
+    shareBtn.textContent = "Copied!";
+    shareBtn.classList.add("copied");
+    setTimeout(() => {
+      shareBtn.textContent = "Share";
+      shareBtn.classList.remove("copied");
+    }, 2000);
+  }).catch(() => {
+    // Clipboard API unavailable — URL is already in the address bar
+    shareBtn.textContent = "Link updated";
+    setTimeout(() => { shareBtn.textContent = "Share"; }, 2000);
+  });
 });
