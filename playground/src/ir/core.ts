@@ -12,8 +12,9 @@
  * When a dup >>> tensor pattern appears, an inline annotation shows the
  * equivalent derived combinator:  -- f &&& g
  *
- * Each leaf expression carries an optional SourceSpan so the HTML output
- * can embed data-span attributes for editor provenance highlighting.
+ * Each leaf expression carries optional span and source-ID provenance so
+ * the HTML output embeds data-span / data-sids attributes for provenance
+ * highlighting in both the editor and the Core panel.
  */
 
 import type { Graph, Node, DupNode, LiteralValue, PortId } from "../../../src/ir/ir.ts";
@@ -28,53 +29,37 @@ export type SpanMap = Map<SourceNodeId, SourceSpan>;
 
 type CoreExpr =
   | { tag: "id" }
-  | { tag: "lit";    value: LiteralValue; span?: SourceSpan }
-  | { tag: "ref";    name: string;        span?: SourceSpan }
-  | { tag: "proj";   field: string;       span?: SourceSpan }
-  | { tag: "ctor";   name: string;        span?: SourceSpan }
-  | { tag: "drop";                        span?: SourceSpan }
-  | { tag: "dup";                         span?: SourceSpan }
-  | { tag: "effect"; op: string;          span?: SourceSpan }
+  | { tag: "lit";    value: LiteralValue; span?: SourceSpan; sourceIds?: SourceNodeId[] }
+  | { tag: "ref";    name: string;        span?: SourceSpan; sourceIds?: SourceNodeId[] }
+  | { tag: "proj";   field: string;       span?: SourceSpan; sourceIds?: SourceNodeId[] }
+  | { tag: "ctor";   name: string;        span?: SourceSpan; sourceIds?: SourceNodeId[] }
+  | { tag: "drop";                        span?: SourceSpan; sourceIds?: SourceNodeId[] }
+  | { tag: "dup";                         span?: SourceSpan; sourceIds?: SourceNodeId[] }
+  | { tag: "effect"; op: string;          span?: SourceSpan; sourceIds?: SourceNodeId[] }
   | { tag: "tensor"; branches: CoreExpr[] }
-  | { tag: "case";   field?: string; branches: Array<{ ctor: string; expr: CoreExpr }>; span?: SourceSpan }
-  | { tag: "cata";   branches: Array<{ ctor: string; expr: CoreExpr }>; span?: SourceSpan }
+  | { tag: "case";   field?: string; branches: Array<{ ctor: string; expr: CoreExpr }>; span?: SourceSpan; sourceIds?: SourceNodeId[] }
+  | { tag: "cata";   branches: Array<{ ctor: string; expr: CoreExpr }>; span?: SourceSpan; sourceIds?: SourceNodeId[] }
   | { tag: "pipe";   steps: CoreExpr[] };
 
 // ---------------------------------------------------------------------------
-// Graph maps
+// Graph maps — backward-only (wireFrom, nodeByOut)
 // ---------------------------------------------------------------------------
 
 interface GraphMaps {
   wireFrom:  Map<PortId, PortId>;
-  wireTo:    Map<PortId, PortId[]>;
   nodeByOut: Map<PortId, Node>;
-  nodeByIn:  Map<PortId, Node>;
-  dupByOut:  Map<PortId, DupNode>;
 }
 
 function buildMaps(graph: Graph): GraphMaps {
   const wireFrom  = new Map<PortId, PortId>();
-  const wireTo    = new Map<PortId, PortId[]>();
   const nodeByOut = new Map<PortId, Node>();
-  const nodeByIn  = new Map<PortId, Node>();
-  const dupByOut  = new Map<PortId, DupNode>();
 
-  for (const w of graph.wires) {
-    wireFrom.set(w.to, w.from);
-    const list = wireTo.get(w.from) ?? [];
-    list.push(w.to);
-    wireTo.set(w.from, list);
-  }
-
+  for (const w of graph.wires) wireFrom.set(w.to, w.from);
   for (const node of graph.nodes) {
     for (const pid of outputPorts(node)) nodeByOut.set(pid, node);
-    for (const pid of inputPorts(node))  nodeByIn.set(pid, node);
-    if (node.kind === "dup") {
-      for (const out of node.outputs) dupByOut.set(out.id, node);
-    }
   }
 
-  return { wireFrom, wireTo, nodeByOut, nodeByIn, dupByOut };
+  return { wireFrom, nodeByOut };
 }
 
 function outputPorts(node: Node): PortId[] {
@@ -108,7 +93,7 @@ function inputPorts(node: Node): PortId[] {
 }
 
 // ---------------------------------------------------------------------------
-// Span helpers
+// Span / sourceId helpers
 // ---------------------------------------------------------------------------
 
 function nodeSpan(node: Node, spanMap: SpanMap): SourceSpan | undefined {
@@ -120,169 +105,155 @@ function nodeSpan(node: Node, spanMap: SpanMap): SourceSpan | undefined {
   return undefined;
 }
 
+function nodeSourceIds(node: Node): SourceNodeId[] {
+  return node.provenance.map(p => p.sourceId);
+}
+
 // ---------------------------------------------------------------------------
-// Expression building — backward trace
+// Expression building — backward trace with optional boundary port
+//
+// `boundary`: when set, reaching this port returns { tag: "id" } instead of
+// continuing the trace.  Used in fanout branch rendering so that each branch
+// is traced backward from the tuple input, stopping at its dup output port.
 // ---------------------------------------------------------------------------
 
-function exprFromPort(portId: PortId, graph: Graph, maps: GraphMaps, spanMap: SpanMap): CoreExpr {
-  if (portId === graph.inPort.id) return { tag: "id" };
+function exprFromPort(
+  portId:    PortId,
+  graph:     Graph,
+  maps:      GraphMaps,
+  spanMap:   SpanMap,
+  boundary?: PortId,
+): CoreExpr {
+  if (portId === graph.inPort.id)                     return { tag: "id" };
+  if (boundary !== undefined && portId === boundary)  return { tag: "id" };
 
   const src = maps.wireFrom.get(portId);
-  if (src !== undefined) return exprFromPort(src, graph, maps, spanMap);
+  if (src !== undefined) return exprFromPort(src, graph, maps, spanMap, boundary);
 
   const node = maps.nodeByOut.get(portId);
-  if (node) return exprFromNode(node, graph, maps, spanMap);
+  if (node) return exprFromNode(node, graph, maps, spanMap, boundary);
 
   return { tag: "id" };
 }
 
-function exprFromNode(node: Node, graph: Graph, maps: GraphMaps, spanMap: SpanMap): CoreExpr {
-  const span = nodeSpan(node, spanMap);
+function exprFromNode(
+  node:      Node,
+  graph:     Graph,
+  maps:      GraphMaps,
+  spanMap:   SpanMap,
+  boundary?: PortId,
+): CoreExpr {
+  const span      = nodeSpan(node, spanMap);
+  const sourceIds = nodeSourceIds(node);
 
   switch (node.kind) {
     case "const":
-      return { tag: "lit", value: node.value, span };
+      return { tag: "lit", value: node.value, span, sourceIds };
 
     case "ref": {
-      const input = exprFromPort(node.input.id, graph, maps, spanMap);
-      return mkPipe(input, { tag: "ref", name: shortRef(node.defId), span });
+      const input = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
+      return mkPipe(input, { tag: "ref", name: shortRef(node.defId), span, sourceIds });
     }
     case "proj": {
-      const input = exprFromPort(node.input.id, graph, maps, spanMap);
-      return mkPipe(input, { tag: "proj", field: node.field, span });
+      const input = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
+      return mkPipe(input, { tag: "proj", field: node.field, span, sourceIds });
     }
     case "ctor": {
-      const input = exprFromPort(node.input.id, graph, maps, spanMap);
-      return mkPipe(input, { tag: "ctor", name: node.ctorName, span });
+      const input = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
+      return mkPipe(input, { tag: "ctor", name: node.ctorName, span, sourceIds });
     }
     case "drop": {
-      const input = exprFromPort(node.input.id, graph, maps, spanMap);
-      return mkPipe(input, { tag: "drop", span });
+      const input = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
+      return mkPipe(input, { tag: "drop", span, sourceIds });
     }
     case "effect": {
-      const input = exprFromPort(node.input.id, graph, maps, spanMap);
-      return mkPipe(input, { tag: "effect", op: node.op, span });
+      const input = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
+      return mkPipe(input, { tag: "effect", op: node.op, span, sourceIds });
     }
     case "dup": {
-      const input = exprFromPort(node.input.id, graph, maps, spanMap);
-      return mkPipe(input, { tag: "dup", span });
+      const input = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
+      return mkPipe(input, { tag: "dup", span, sourceIds });
     }
 
     case "tuple":
-      return exprFromTuple(node, graph, maps, spanMap);
+      return exprFromTuple(node, graph, maps, spanMap, boundary);
 
     case "case": {
-      const input    = exprFromPort(node.input.id, graph, maps, spanMap);
+      const input    = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
       const branches = node.branches.map(b => ({
         ctor: b.tag,
         expr: renderSubGraph(b.graph, spanMap),
       }));
-      return mkPipe(input, { tag: "case", field: node.field, branches, span });
+      return mkPipe(input, { tag: "case", field: node.field, branches, span, sourceIds });
     }
     case "cata": {
-      const input    = exprFromPort(node.input.id, graph, maps, spanMap);
+      const input    = exprFromPort(node.input.id, graph, maps, spanMap, boundary);
       const branches = node.algebra.map(b => ({
         ctor: b.tag,
         expr: renderSubGraph(b.graph, spanMap),
       }));
-      return mkPipe(input, { tag: "cata", branches, span });
+      return mkPipe(input, { tag: "cata", branches, span, sourceIds });
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Tuple: dup >>> (b0 *** b1 *** …) or (f0 *** f1 *** …)
+// Tuple: dup >>> (b0 *** b1 *** …) or (b0 *** b1 *** …)
+//
+// When a dup is associated, each branch's stop port is determined by
+// backward reachability from the tuple input, not by index assumption.
 // ---------------------------------------------------------------------------
 
 function exprFromTuple(
-  node: Extract<Node, { kind: "tuple" }>,
-  graph: Graph,
-  maps: GraphMaps,
-  spanMap: SpanMap,
+  node:      Extract<Node, { kind: "tuple" }>,
+  graph:     Graph,
+  maps:      GraphMaps,
+  spanMap:   SpanMap,
+  boundary?: PortId,
 ): CoreExpr {
   const dup = findAssociatedDup(node, graph);
 
   if (dup) {
-    const branches = dup.outputs.map((out, i) => {
-      const tupleIn = node.inputs[i]?.port.id ?? out.id;
-      return branchExpr(out.id, tupleIn, maps, spanMap);
+    const dupOutputSet = new Set(dup.outputs.map(o => o.id));
+    const branches = node.inputs.map(inp => {
+      const stop = findDupBoundary(inp.port.id, dupOutputSet, maps, graph);
+      return exprFromPort(inp.port.id, graph, maps, spanMap, stop);
     });
-    const dupSpan  = nodeSpan(dup, spanMap);
-    const dupInput = exprFromPort(dup.input.id, graph, maps, spanMap);
-    return mkPipe(dupInput, { tag: "dup", span: dupSpan }, { tag: "tensor", branches });
+    const dupSpan      = nodeSpan(dup, spanMap);
+    const dupSourceIds = nodeSourceIds(dup);
+    const dupInput     = exprFromPort(dup.input.id, graph, maps, spanMap, boundary);
+    return mkPipe(dupInput, { tag: "dup", span: dupSpan, sourceIds: dupSourceIds }, { tag: "tensor", branches });
   }
 
-  // Build-like: unit-sourced, no dup
-  const branches = node.inputs.map(inp => exprFromPort(inp.port.id, graph, maps, spanMap));
+  // Build-like: each input traced independently with the outer boundary
+  const branches = node.inputs.map(inp => exprFromPort(inp.port.id, graph, maps, spanMap, boundary));
   return { tag: "tensor", branches };
 }
 
-// ---------------------------------------------------------------------------
-// Branch trace — forward walk from dup output to tuple input
-// ---------------------------------------------------------------------------
-
-function branchExpr(
-  startPortId: PortId,
-  endPortId:   PortId,
-  maps:        GraphMaps,
-  spanMap:     SpanMap,
-): CoreExpr {
-  if (startPortId === endPortId) return { tag: "id" };
-
-  const dests = maps.wireTo.get(startPortId);
-  if (dests && dests.length > 0) {
-    const destPortId = dests[0]!;
-    const node       = maps.nodeByIn.get(destPortId);
-    if (node) {
-      const outPortId = singleOutput(node);
-      if (outPortId !== undefined) {
-        const rest = branchExpr(outPortId, endPortId, maps, spanMap);
-        const span = nodeSpan(node, spanMap);
-        return mkPipe(nodeStep(node, span), rest);
-      }
+// Backward DFS from portId — returns the first port found in `boundaries`.
+function findDupBoundary(
+  portId:     PortId,
+  boundaries: Set<PortId>,
+  maps:       GraphMaps,
+  graph:      Graph,
+): PortId | undefined {
+  const visited = new Set<PortId>();
+  function dfs(pid: PortId): PortId | undefined {
+    if (boundaries.has(pid))   return pid;
+    if (pid === graph.inPort.id) return undefined;
+    if (visited.has(pid))      return undefined;
+    visited.add(pid);
+    const src = maps.wireFrom.get(pid);
+    if (src !== undefined) return dfs(src);
+    const n = maps.nodeByOut.get(pid);
+    if (!n) return undefined;
+    for (const inp of inputPorts(n)) {
+      const found = dfs(inp);
+      if (found !== undefined) return found;
     }
+    return undefined;
   }
-
-  return exprFromSourcePort(endPortId, maps, spanMap);
-}
-
-function exprFromSourcePort(portId: PortId, maps: GraphMaps, spanMap: SpanMap): CoreExpr {
-  const src = maps.wireFrom.get(portId);
-  if (src !== undefined) return exprFromSourcePort(src, maps, spanMap);
-
-  const node = maps.nodeByOut.get(portId);
-  if (!node) return { tag: "id" };
-  if (node.kind === "const") {
-    return { tag: "lit", value: node.value, span: nodeSpan(node, spanMap) };
-  }
-  return { tag: "id" };
-}
-
-function nodeStep(node: Node, span: SourceSpan | undefined): CoreExpr {
-  switch (node.kind) {
-    case "drop":   return { tag: "drop",   span };
-    case "proj":   return { tag: "proj",   field: node.field,       span };
-    case "ctor":   return { tag: "ctor",   name:  node.ctorName,    span };
-    case "ref":    return { tag: "ref",    name:  shortRef(node.defId), span };
-    case "effect": return { tag: "effect", op:    node.op,          span };
-    case "const":  return { tag: "lit",    value: node.value,       span };
-    default:       return { tag: "id" };
-  }
-}
-
-function singleOutput(node: Node): PortId | undefined {
-  switch (node.kind) {
-    case "drop":
-    case "proj":
-    case "ctor":
-    case "effect":
-    case "ref":
-    case "const":
-    case "tuple":
-    case "case":
-    case "cata":  return node.output.id;
-    case "dup":   return undefined;
-  }
+  return dfs(portId);
 }
 
 // ---------------------------------------------------------------------------
@@ -345,10 +316,13 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function spanWrap(text: string, span: SourceSpan | undefined): string {
-  if (!span) return esc(text);
-  const data = esc(JSON.stringify(span));
-  return `<span class="cp" data-span="${data}">${esc(text)}</span>`;
+function spanWrap(text: string, span: SourceSpan | undefined, sourceIds?: SourceNodeId[]): string {
+  const hasSpan = span !== undefined;
+  const hasIds  = sourceIds !== undefined && sourceIds.length > 0;
+  if (!hasSpan && !hasIds) return esc(text);
+  const spanAttr = hasSpan ? ` data-span="${esc(JSON.stringify(span))}"` : "";
+  const sidsAttr = hasIds  ? ` data-sids="${esc(sourceIds.join(" "))}"` : "";
+  return `<span class="cp"${spanAttr}${sidsAttr}>${esc(text)}</span>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +370,6 @@ function isBlock(expr: CoreExpr): boolean {
     case "cata":   return true;
     case "pipe": {
       if (expr.steps.some(isBlock)) return true;
-      // Force multi-line when dup >>> tensor appears so the &&& annotation renders
       for (let i = 1; i < expr.steps.length; i++) {
         if (expr.steps[i - 1]!.tag === "dup" && expr.steps[i]!.tag === "tensor") return true;
       }
@@ -407,27 +380,26 @@ function isBlock(expr: CoreExpr): boolean {
   }
 }
 
-// Inline (single-line) rendering — returns HTML.
 function fmtInline(expr: CoreExpr): string {
   switch (expr.tag) {
     case "id":     return "id";
-    case "lit":    return spanWrap(fmtLit(expr.value),    expr.span);
-    case "ref":    return spanWrap(expr.name,              expr.span);
-    case "proj":   return spanWrap(`.${expr.field}`,       expr.span);
-    case "ctor":   return spanWrap(`.${expr.name}`,        expr.span);
-    case "drop":   return spanWrap("drop",                 expr.span);
-    case "dup":    return spanWrap("dup",                  expr.span);
-    case "effect": return spanWrap(`perform ${esc(expr.op)}`, expr.span);
+    case "lit":    return spanWrap(fmtLit(expr.value),       expr.span, expr.sourceIds);
+    case "ref":    return spanWrap(expr.name,                 expr.span, expr.sourceIds);
+    case "proj":   return spanWrap(`.${expr.field}`,          expr.span, expr.sourceIds);
+    case "ctor":   return spanWrap(`.${expr.name}`,           expr.span, expr.sourceIds);
+    case "drop":   return spanWrap("drop",                    expr.span, expr.sourceIds);
+    case "dup":    return spanWrap("dup",                     expr.span, expr.sourceIds);
+    case "effect": return spanWrap(`perform ${esc(expr.op)}`, expr.span, expr.sourceIds);
     case "pipe":   return expr.steps.map(s => fmtInlineStep(s, "pipe")).join(" >>> ");
     case "tensor": return fmtTensorInline(expr.branches);
     case "case": {
       const kw = expr.field ? `case .${esc(expr.field)}` : "case";
       const bs = expr.branches.map(b => `${esc(b.ctor)}: ${fmtInline(b.expr)}`).join(", ");
-      return `${spanWrap(kw, expr.span)} { ${bs} }`;
+      return `${spanWrap(kw, expr.span, expr.sourceIds)} { ${bs} }`;
     }
     case "cata": {
       const bs = expr.branches.map(b => `${esc(b.ctor)}: ${fmtInline(b.expr)}`).join(", ");
-      return `${spanWrap("cata", expr.span)} { ${bs} }`;
+      return `${spanWrap("cata", expr.span, expr.sourceIds)} { ${bs} }`;
     }
   }
 }
@@ -444,31 +416,28 @@ function fmtTensorInline(branches: CoreExpr[]): string {
   return `(${parts.join(" *** ")})`;
 }
 
-// &&& form: same branches but joined with &&&
 function fmtAmpersand(branches: CoreExpr[]): string {
   if (branches.length === 1) return fmtInline(branches[0]!);
   const parts = branches.map(b => fmtInlineStep(b, "tensor"));
   return parts.join(" &amp;&amp;&amp; ");
 }
 
-// Multi-line renderer — indent is the indent of the current expression.
 function fmtExpr(expr: CoreExpr, indent: string): string {
   switch (expr.tag) {
     case "id":     return "id";
-    case "lit":    return spanWrap(fmtLit(expr.value),    expr.span);
-    case "ref":    return spanWrap(expr.name,              expr.span);
-    case "proj":   return spanWrap(`.${expr.field}`,       expr.span);
-    case "ctor":   return spanWrap(`.${expr.name}`,        expr.span);
-    case "drop":   return spanWrap("drop",                 expr.span);
-    case "dup":    return spanWrap("dup",                  expr.span);
-    case "effect": return spanWrap(`perform ${esc(expr.op)}`, expr.span);
+    case "lit":    return spanWrap(fmtLit(expr.value),       expr.span, expr.sourceIds);
+    case "ref":    return spanWrap(expr.name,                 expr.span, expr.sourceIds);
+    case "proj":   return spanWrap(`.${expr.field}`,          expr.span, expr.sourceIds);
+    case "ctor":   return spanWrap(`.${expr.name}`,           expr.span, expr.sourceIds);
+    case "drop":   return spanWrap("drop",                    expr.span, expr.sourceIds);
+    case "dup":    return spanWrap("dup",                     expr.span, expr.sourceIds);
+    case "effect": return spanWrap(`perform ${esc(expr.op)}`, expr.span, expr.sourceIds);
 
     case "pipe": {
       if (!isBlock(expr)) return fmtInline(expr);
       return expr.steps.map((s, i) => {
         const last = i === expr.steps.length - 1;
         const str  = fmtExprStep(s, indent, "pipe");
-        // &&& annotation: append to the tensor step that immediately follows dup
         if (!last && s.tag === "tensor" && i > 0 && expr.steps[i - 1]?.tag === "dup") {
           const amp = fmtAmpersand(s.branches);
           const alt = `<span class="core-alt">-- ${amp}</span>`;
@@ -480,8 +449,8 @@ function fmtExpr(expr: CoreExpr, indent: string): string {
 
     case "tensor": {
       if (!isBlock(expr)) return fmtTensorInline(expr.branches);
-      const inner  = indent + "  ";
-      const parts  = expr.branches.map(b => fmtExprStep(b, inner, "tensor"));
+      const inner = indent + "  ";
+      const parts = expr.branches.map(b => fmtExprStep(b, inner, "tensor"));
       return `(\n${inner}${parts.join(` ***\n${inner}`)}\n${indent})`;
     }
 
@@ -496,7 +465,7 @@ function fmtExpr(expr: CoreExpr, indent: string): string {
           return `${esc(b.ctor)}: ${val}`;
         })
         .join(`,\n${inner}`);
-      return `${spanWrap(kw, expr.span)} {\n${inner}${lines}\n${indent}}`;
+      return `${spanWrap(kw, expr.span, expr.sourceIds)} {\n${inner}${lines}\n${indent}}`;
     }
 
     case "cata": {
@@ -509,7 +478,7 @@ function fmtExpr(expr: CoreExpr, indent: string): string {
           return `${esc(b.ctor)}: ${val}`;
         })
         .join(`,\n${inner}`);
-      return `${spanWrap("cata", expr.span)} {\n${inner}${lines}\n${indent}}`;
+      return `${spanWrap("cata", expr.span, expr.sourceIds)} {\n${inner}${lines}\n${indent}}`;
     }
   }
 }

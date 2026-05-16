@@ -356,31 +356,44 @@ function clearCoreHighlight(): void {
   irCore.querySelectorAll(".cp-active").forEach(el => el.classList.remove("cp-active"));
 }
 
-function highlightCoreToken(span: SourceSpan): void {
+function highlightCoreToken(span: SourceSpan, sourceIds: string[]): void {
   clearCoreHighlight();
   if (activeIrTab !== "core") return;
-  irCore.querySelectorAll<HTMLElement>(".cp[data-span]").forEach(el => {
-    try {
-      const s = JSON.parse(el.getAttribute("data-span")!) as SourceSpan;
-      if (s.start.line   === span.start.line   &&
-          s.start.column === span.start.column &&
-          s.end.line     === span.end.line     &&
-          s.end.column   === span.end.column) {
+  const useIds = sourceIds.length > 0;
+  irCore.querySelectorAll<HTMLElement>(".cp").forEach(el => {
+    if (useIds) {
+      const raw = el.getAttribute("data-sids");
+      if (raw && raw.split(" ").some(id => sourceIds.includes(id))) {
         el.classList.add("cp-active");
+        return;
       }
-    } catch { /* ignore */ }
+    }
+    // Fallback: span equality
+    const rawSpan = el.getAttribute("data-span");
+    if (rawSpan) {
+      try {
+        const s = JSON.parse(rawSpan) as SourceSpan;
+        if (s.start.line   === span.start.line   &&
+            s.start.column === span.start.column &&
+            s.end.line     === span.end.line     &&
+            s.end.column   === span.end.column) {
+          el.classList.add("cp-active");
+        }
+      } catch { /* ignore */ }
+    }
   });
 }
 
 graphSvgEl.addEventListener("mouseover", (e) => {
   const g = (e.target as Element).closest("g.node");
   if (!g) return;
-  const raw = g.getAttribute("data-span");
-  if (!raw) return;
+  const rawSpan = g.getAttribute("data-span");
+  if (!rawSpan) return;
   try {
-    const span = JSON.parse(raw) as SourceSpan;
+    const span      = JSON.parse(rawSpan) as SourceSpan;
+    const sourceIds = (g.getAttribute("data-sids") ?? "").split(" ").filter(s => s.length > 0);
     highlightSpan(span);
-    highlightCoreToken(span);
+    highlightCoreToken(span, sourceIds);
   } catch { /* ignore */ }
 });
 

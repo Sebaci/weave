@@ -46,17 +46,18 @@ export type RenderedPort = {
 };
 
 export type RenderedNode = {
-  id:       string;
-  label:    string;
-  kind:     string;
-  effect:   ConcreteEffect;
-  x:        number;
-  y:        number;
-  width:    number;
-  height:   number;
-  inPorts:  RenderedPort[];
-  outPorts: RenderedPort[];
-  span?:    SourceSpan;
+  id:        string;
+  label:     string;
+  kind:      string;
+  effect:    ConcreteEffect;
+  x:         number;
+  y:         number;
+  width:     number;
+  height:    number;
+  inPorts:   RenderedPort[];
+  outPorts:  RenderedPort[];
+  span?:     SourceSpan;
+  sourceIds: SourceNodeId[];
 };
 
 export type RenderedEdge = {
@@ -295,17 +296,18 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     })();
 
     renderedNodes.push({
-      id:       nodeId,
-      label:    isSource ? "in" : isSink ? "out" : nodeLabel(irNode!),
-      kind:     isSource ? "source" : isSink ? "sink" : (irNode?.kind ?? "unknown"),
-      effect:   isSource || isSink ? "pure" : (irNode?.effect ?? "pure"),
-      x:        n.x,
-      y:        n.y,
-      width:    n.width,
-      height:   n.height,
-      inPorts:  inPortsR,
-      outPorts: outPortsR,
+      id:        nodeId,
+      label:     isSource ? "in" : isSink ? "out" : nodeLabel(irNode!),
+      kind:      isSource ? "source" : isSink ? "sink" : (irNode?.kind ?? "unknown"),
+      effect:    isSource || isSink ? "pure" : (irNode?.effect ?? "pure"),
+      x:         n.x,
+      y:         n.y,
+      width:     n.width,
+      height:    n.height,
+      inPorts:   inPortsR,
+      outPorts:  outPortsR,
       span,
+      sourceIds: (irNode?.provenance ?? []).map(p => p.sourceId),
     });
   }
 
