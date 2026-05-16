@@ -158,7 +158,28 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
 .tt-morph-label { color: #64748b; font-size: 10px; }
 .tt-source { color: #64748b; font-size: 10px; margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.07); padding-top: 5px; }
 
-/* ── IR JSON ──────────────────────────────────────────────────────────── */
+/* ── IR panel tabs ────────────────────────────────────────────────────── */
+.ir-tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.ir-tab {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: #555;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.ir-tab:hover  { background: #eef; }
+.ir-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── IR JSON / Text ───────────────────────────────────────────────────── */
 .ir-body {
   white-space: pre;
   color: #2c3e50;
@@ -183,3 +204,9 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
 
 /* ── Provenance highlight ─────────────────────────────────────────────── */
 .cm-provenance-hl { background-color: rgba(251, 191, 36, 0.35); border-radius: 2px; }
+
+/* ── Core view ────────────────────────────────────────────────────────── */
+.cp { cursor: default; }
+.cp:hover  { background: rgba(74, 144, 217, 0.15); border-radius: 2px; }
+.cp-active { background: rgba(251, 191, 36, 0.35); border-radius: 2px; }
+.core-alt  { color: #94a3b8; font-style: italic; }

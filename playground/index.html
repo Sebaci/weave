@@ -34,8 +34,17 @@
       </section>
 
       <section class="panel" id="ir-panel">
-        <div class="panel-header">IR JSON</div>
-        <pre id="ir-json" class="panel-body ir-body"></pre>
+        <div class="panel-header">
+          IR
+          <span class="ir-tabs">
+            <button class="ir-tab active" data-tab="core">Core</button>
+            <button class="ir-tab" data-tab="json">JSON</button>
+            <button class="ir-tab" data-tab="dump">Dump</button>
+          </span>
+        </div>
+        <pre id="ir-core" class="panel-body ir-body"></pre>
+        <pre id="ir-json" class="panel-body ir-body" style="display:none"></pre>
+        <pre id="ir-text" class="panel-body ir-body" style="display:none"></pre>
       </section>
     </div>
   </main>

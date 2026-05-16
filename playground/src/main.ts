@@ -9,6 +9,8 @@ import { renderGraphSVG } from "./graph/render.ts";
 import { buildMemoryModuleGraph, checkAll, elaborateAll } from "../../src/compiler.ts";
 import type { ModuleGraph } from "../../src/compiler.ts";
 import { serializeGraph } from "../../src/ir/serialize.ts";
+import { formatGraphText } from "./ir/text.ts";
+import { formatGraphCore } from "./ir/core.ts";
 import { resetElabCounters } from "../../src/elaborator/index.ts";
 import type { Position, SourceNodeId, SourceSpan } from "../../src/surface/id.ts";
 import type { ElaboratedModule } from "../../src/ir/ir.ts";
@@ -64,9 +66,32 @@ const provenanceField = StateField.define<DecorationSet>({
 // ---------------------------------------------------------------------------
 
 const diagContent = document.getElementById("diagnostics-content")!;
+const irCore      = document.getElementById("ir-core")!;
 const irJson      = document.getElementById("ir-json")!;
+const irText      = document.getElementById("ir-text")!;
 const graphSvgEl  = document.getElementById("graph-svg")!;
 const defSelect   = document.getElementById("def-select") as HTMLSelectElement;
+
+// ---------------------------------------------------------------------------
+// IR panel tab switching
+// ---------------------------------------------------------------------------
+
+type IrTab = "core" | "json" | "dump";
+let activeIrTab: IrTab = "core";
+
+function setIrTab(tab: IrTab): void {
+  activeIrTab = tab;
+  irCore.style.display = tab === "core" ? "" : "none";
+  irJson.style.display = tab === "json" ? "" : "none";
+  irText.style.display = tab === "dump" ? "" : "none";
+  document.querySelectorAll<HTMLButtonElement>(".ir-tab").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset["tab"] === tab);
+  });
+}
+
+document.querySelectorAll<HTMLButtonElement>(".ir-tab").forEach(btn => {
+  btn.addEventListener("click", () => setIrTab(btn.dataset["tab"] as IrTab));
+});
 
 // ---------------------------------------------------------------------------
 // Position conversion: Weave spans (1-based line, 1-based col) → CM offset
@@ -90,12 +115,14 @@ let currentSpanMap: Map<SourceNodeId, SourceSpan> = new Map();
 let currentLayout:  RenderedLayout | null = null;
 
 function refreshIRPanel(): void {
-  if (!currentElabMod) { irJson.textContent = ""; return; }
+  if (!currentElabMod) { irCore.textContent = ""; irJson.textContent = ""; irText.textContent = ""; return; }
   const defName = defSelect.value;
-  if (!defName) { irJson.textContent = ""; return; }
+  if (!defName) { irCore.textContent = ""; irJson.textContent = ""; irText.textContent = ""; return; }
   const graph = currentElabMod.defs.get(defName);
-  if (!graph)  { irJson.textContent = ""; return; }
+  if (!graph)  { irCore.textContent = ""; irJson.textContent = ""; irText.textContent = ""; return; }
+  irCore.innerHTML   = formatGraphCore(defName, graph, currentSpanMap);
   irJson.textContent = JSON.stringify(serializeGraph(defName, graph), null, 2);
+  irText.textContent = formatGraphText(defName, graph);
 }
 
 function refreshGraphPanel(): void {
@@ -307,7 +334,7 @@ graphSvgEl.addEventListener("pointermove", (e) => {
   else hideTooltip();
 });
 
-graphSvgEl.addEventListener("pointerleave", hideTooltip);
+graphSvgEl.addEventListener("pointerleave", () => { hideTooltip(); clearCoreHighlight(); clearProvenance(); });
 
 // ---------------------------------------------------------------------------
 // Graph → editor provenance hover
@@ -325,19 +352,53 @@ function highlightSpan(span: SourceSpan): void {
   view.dispatch({ effects: setHighlight.of({ from, to }) });
 }
 
+function clearCoreHighlight(): void {
+  irCore.querySelectorAll(".cp-active").forEach(el => el.classList.remove("cp-active"));
+}
+
+function highlightCoreToken(span: SourceSpan): void {
+  clearCoreHighlight();
+  if (activeIrTab !== "core") return;
+  irCore.querySelectorAll<HTMLElement>(".cp[data-span]").forEach(el => {
+    try {
+      const s = JSON.parse(el.getAttribute("data-span")!) as SourceSpan;
+      if (s.start.line   === span.start.line   &&
+          s.start.column === span.start.column &&
+          s.end.line     === span.end.line     &&
+          s.end.column   === span.end.column) {
+        el.classList.add("cp-active");
+      }
+    } catch { /* ignore */ }
+  });
+}
+
 graphSvgEl.addEventListener("mouseover", (e) => {
   const g = (e.target as Element).closest("g.node");
   if (!g) return;
   const raw = g.getAttribute("data-span");
   if (!raw) return;
-  try { highlightSpan(JSON.parse(raw) as SourceSpan); } catch { /* ignore */ }
+  try {
+    const span = JSON.parse(raw) as SourceSpan;
+    highlightSpan(span);
+    highlightCoreToken(span);
+  } catch { /* ignore */ }
 });
 
 graphSvgEl.addEventListener("mouseout", (e) => {
   const g = (e.target as Element).closest("g.node");
   if (!g) return;
   clearProvenance();
+  clearCoreHighlight();
 });
+
+irCore.addEventListener("mouseover", (e) => {
+  const target = (e.target as Element).closest("[data-span]");
+  if (!target) { clearProvenance(); return; }
+  const raw = target.getAttribute("data-span");
+  if (raw) { try { highlightSpan(JSON.parse(raw) as SourceSpan); } catch { /* ignore */ } }
+});
+
+irCore.addEventListener("mouseleave", () => clearProvenance());
 
 function updateDefSelector(names: string[]): void {
   const prev = defSelect.value;
