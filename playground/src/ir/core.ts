@@ -324,7 +324,8 @@ function findAssociatedDup(
 }
 
 function shortRef(defId: string): string {
-  return defId.startsWith("builtin.") ? defId.slice("builtin.".length) : defId;
+  const dot = defId.lastIndexOf(".");
+  return dot === -1 ? defId : defId.slice(dot + 1);
 }
 
 function mkPipe(a: CoreExpr, ...rest: CoreExpr[]): CoreExpr {
@@ -539,7 +540,7 @@ export function formatGraphCore(
   const inTy   = esc(fmtTy(graph.inPort.ty));
   const outTy  = esc(fmtTy(graph.outPort.ty));
   const eff    = graph.effect === "pure" ? "" : `  ! ${graph.effect}`;
-  const header = `def ${esc(defName)} : ${inTy} → ${outTy}${esc(eff)} =`;
+  const header = `def ${esc(shortRef(defName))} : ${inTy} → ${outTy}${esc(eff)} =`;
   const body   = fmtExpr(expr, "  ");
   return `${header}\n  ${body}`;
 }
