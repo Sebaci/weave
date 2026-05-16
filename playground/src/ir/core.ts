@@ -223,15 +223,23 @@ function exprFromTuple(
         claimedDupOuts.add(stop);
         return exprFromPort(inp.port.id, graph, maps, spanMap, stop);
       }
-      // Self-sourced branch (const/unit-sourced build): the dup copy was
-      // consumed by a DropNode terminal lift.  Find it and prepend `drop`.
-      const lift = findTerminalLift(dup, claimedDupOuts, graph, maps);
-      if (lift !== undefined) {
-        claimedDupOuts.add(lift.consumedDupOut);
-        const dropSpan      = nodeSpan(lift.node, spanMap);
-        const dropSourceIds = nodeSourceIds(lift.node);
-        const val           = exprFromPort(inp.port.id, graph, maps, spanMap);
-        return mkPipe({ tag: "drop", span: dropSpan, sourceIds: dropSourceIds }, val);
+      // No backward path to the dup.  Two cases:
+      //   (a) Self-sourced RHS (ConstNode): liftUnit inserts a DropNode directly
+      //       on the dup output.  Claim that output and render  drop >>> val.
+      //   (b) liveFromLocals field (let): the port comes from ctx.locals and has
+      //       no connection to this dup at all.  Do not claim any output; just
+      //       trace the branch independently.
+      // Distinguish by whether an unclaimed dup output has a direct DropNode.
+      const unclaimedOut = dup.outputs.find(
+        o => !claimedDupOuts.has(o.id) && findDirectDrop(o.id, graph, maps) !== undefined,
+      );
+      if (unclaimedOut !== undefined) {
+        claimedDupOuts.add(unclaimedOut.id);
+        const dropNode   = findDirectDrop(unclaimedOut.id, graph, maps)!;
+        const dropSpan   = nodeSpan(dropNode, spanMap);
+        const dropSrcIds = nodeSourceIds(dropNode);
+        const val        = exprFromPort(inp.port.id, graph, maps, spanMap);
+        return mkPipe({ tag: "drop", span: dropSpan, sourceIds: dropSrcIds }, val);
       }
       return exprFromPort(inp.port.id, graph, maps, spanMap);
     });
@@ -273,23 +281,13 @@ function findDupBoundary(
   return dfs(portId);
 }
 
-// Find a DropNode consuming an unclaimed dup output — the terminal lift for a
-// self-sourced branch.  liftUnit always uses an explicit wire so we check
-// wireFrom.get(drop.input.id) === dupOut.id (explicit) or the shared-port
-// case drop.input.id === dupOut.id.
-function findTerminalLift(
-  dup:            DupNode,
-  claimedOutputs: Set<PortId>,
-  graph:          Graph,
-  maps:           GraphMaps,
-): { node: Node; consumedDupOut: PortId } | undefined {
-  for (const dupOut of dup.outputs) {
-    if (claimedOutputs.has(dupOut.id)) continue;
-    for (const node of graph.nodes) {
-      if (node.kind !== "drop") continue;
-      const src = maps.wireFrom.get(node.input.id) ?? node.input.id;
-      if (src === dupOut.id) return { node, consumedDupOut: dupOut.id };
-    }
+// Find the DropNode whose input is directly wired from dupOutId (or shares
+// the same port id).  Used for best-effort provenance on self-sourced branches.
+function findDirectDrop(dupOutId: PortId, graph: Graph, maps: GraphMaps): Node | undefined {
+  for (const node of graph.nodes) {
+    if (node.kind !== "drop") continue;
+    const src = maps.wireFrom.get(node.input.id) ?? node.input.id;
+    if (src === dupOutId) return node;
   }
   return undefined;
 }
