@@ -214,11 +214,28 @@ function exprFromTuple(
   const dup = findAssociatedDup(node, graph);
 
   if (dup) {
-    const dupOutputSet = new Set(dup.outputs.map(o => o.id));
+    const dupOutputSet   = new Set(dup.outputs.map(o => o.id));
+    const claimedDupOuts = new Set<PortId>();
+
     const branches = node.inputs.map(inp => {
       const stop = findDupBoundary(inp.port.id, dupOutputSet, maps, graph);
-      return exprFromPort(inp.port.id, graph, maps, spanMap, stop);
+      if (stop !== undefined) {
+        claimedDupOuts.add(stop);
+        return exprFromPort(inp.port.id, graph, maps, spanMap, stop);
+      }
+      // Self-sourced branch (const/unit-sourced build): the dup copy was
+      // consumed by a DropNode terminal lift.  Find it and prepend `drop`.
+      const lift = findTerminalLift(dup, claimedDupOuts, graph, maps);
+      if (lift !== undefined) {
+        claimedDupOuts.add(lift.consumedDupOut);
+        const dropSpan      = nodeSpan(lift.node, spanMap);
+        const dropSourceIds = nodeSourceIds(lift.node);
+        const val           = exprFromPort(inp.port.id, graph, maps, spanMap);
+        return mkPipe({ tag: "drop", span: dropSpan, sourceIds: dropSourceIds }, val);
+      }
+      return exprFromPort(inp.port.id, graph, maps, spanMap);
     });
+
     const dupSpan      = nodeSpan(dup, spanMap);
     const dupSourceIds = nodeSourceIds(dup);
     const dupInput     = exprFromPort(dup.input.id, graph, maps, spanMap, boundary);
@@ -254,6 +271,27 @@ function findDupBoundary(
     return undefined;
   }
   return dfs(portId);
+}
+
+// Find a DropNode consuming an unclaimed dup output — the terminal lift for a
+// self-sourced branch.  liftUnit always uses an explicit wire so we check
+// wireFrom.get(drop.input.id) === dupOut.id (explicit) or the shared-port
+// case drop.input.id === dupOut.id.
+function findTerminalLift(
+  dup:            DupNode,
+  claimedOutputs: Set<PortId>,
+  graph:          Graph,
+  maps:           GraphMaps,
+): { node: Node; consumedDupOut: PortId } | undefined {
+  for (const dupOut of dup.outputs) {
+    if (claimedOutputs.has(dupOut.id)) continue;
+    for (const node of graph.nodes) {
+      if (node.kind !== "drop") continue;
+      const src = maps.wireFrom.get(node.input.id) ?? node.input.id;
+      if (src === dupOut.id) return { node, consumedDupOut: dupOut.id };
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
