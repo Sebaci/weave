@@ -202,9 +202,60 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     }
   }
 
+  // ── Source-order layout hints ────────────────────────────────────────────
+  // Use Dagre's `constraints` option ({left, right} pairs) to enforce
+  // within-rank ordering without touching the graph or rank assignment.
+  // For dup (fan-out) nodes: order successors by port index.
+  // For tuple (fan-in) nodes: order predecessors by field order.
+
+  const succOfOutPort = new Map<PortId, string>();
+  const predOfInPort  = new Map<PortId, string>();
+
+  for (const [portId, fromId] of outPorts) {
+    const toId = inPorts.get(portId);
+    if (toId !== undefined && toId !== fromId) {
+      succOfOutPort.set(portId, toId);
+      predOfInPort.set(portId, fromId);
+    }
+  }
+  for (const wire of graph.wires) {
+    const fromId = outPorts.get(wire.from);
+    const toId   = inPorts.get(wire.to);
+    if (fromId !== undefined && toId !== undefined) {
+      succOfOutPort.set(wire.from, toId);
+      predOfInPort.set(wire.to, fromId);
+    }
+  }
+
+  const constraints: { left: string; right: string }[] = [];
+  for (const node of graph.nodes) {
+    const ports = allPorts.get(node.id)!;
+
+    if (node.kind === "dup") {
+      const succs = ports.outPorts
+        .map(p => succOfOutPort.get(p.portId))
+        .filter((id): id is string => id !== undefined);
+      for (let i = 0; i < succs.length - 1; i++) {
+        const a = succs[i]!, b = succs[i + 1]!;
+        if (a !== b) constraints.push({ left: a, right: b });
+      }
+    }
+
+    if (node.kind === "tuple") {
+      const preds = ports.inPorts
+        .map(p => predOfInPort.get(p.portId))
+        .filter((id): id is string => id !== undefined);
+      for (let i = 0; i < preds.length - 1; i++) {
+        const a = preds[i]!, b = preds[i + 1]!;
+        if (a !== b) constraints.push({ left: a, right: b });
+      }
+    }
+  }
+
   // ── Run Dagre layout ─────────────────────────────────────────────────────
 
-  dagreLayout(g);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (dagreLayout as any)(g, constraints.length ? { constraints } : {});
 
   const graphMeta = g.graph() as { width?: number; height?: number };
 
