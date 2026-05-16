@@ -9,8 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.2.0] - 2026-05-16
+
 ### Added
-- `buildMemoryModuleGraph(files, entryPath)` — in-memory equivalent of `buildModuleGraph` with no Node.js dependencies. Takes a `Map<string, string>` of virtual path → source and returns the same `ResolveResult` / `ModuleGraph` types. All imports are resolved against the entry file's directory (matching the Node resolver's fixed-root contract). Exported from `compiler.ts` so browser and test consumers can use the full compile pipeline without `compiler-host.ts`.
+- **Playground** (`playground/`) — browser-based live environment for exploring Weave programs:
+  - CodeMirror editor with inline diagnostics and source-span highlighting.
+  - **Graph panel** — elaborated IR rendered as an SVG dataflow graph using Dagre layout. Nodes are colour-coded by kind (ref, dup, tuple, const, case, cata, effect, …). Edges drawn as cubic bézier curves; ports shown with side-coloured circles.
+  - Graph node/port/wire hover shows a rich HTML tooltip (label, type, effect level, source location).
+  - Hovering a graph node highlights the corresponding surface construct in the editor and synchronises with the Core panel.
+  - **Core panel** — elaborated graph displayed as categorical pipeline notation using `>>>`, `dup`, `***`, `drop`, `case`, `cata`. Fanout patterns show an inline `-- f &&& g` annotation. Each token carries provenance so hovering highlights the matching editor range.
+  - **Dump panel** — raw IR graph as structured text for debugging.
+  - Def selector dropdown to switch between all concrete definitions in the compiled module.
+- `buildMemoryModuleGraph(files, entryPath)` — in-memory equivalent of `buildModuleGraph` with no Node.js dependencies. Exported from `compiler.ts` for browser and test consumers.
 
 ---
 

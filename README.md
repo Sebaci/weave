@@ -274,7 +274,7 @@ Claude Code and Codex operate as complementary roles: Claude Code implements, Co
 
 ## 🚧 Status
 
-Current stage: **v1.1.0** — IR JSON export.
+Current stage: **v1.2.0** — Browser playground with graph view and Core notation.
 
 * ✅ Language specification (v1)
 * ✅ Surface syntax & parser
@@ -296,6 +296,7 @@ Current stage: **v1.1.0** — IR JSON export.
 * ✅ Spec-driven test suite and golden IR snapshot tests
 * ✅ Public compiler API (`src/compiler.ts`) — browser-safe core, no Node.js dependencies
 * ✅ `weave ir` — export elaborated graph IR as stable JSON (normalized IDs, source-map provenance)
+* ✅ Browser playground — live editor with SVG graph view (Dagre layout, hover tooltips, provenance highlighting) and Core panel (categorical notation: `>>>`, `dup`, `***`, `drop`, `case`, `cata`)
 
 ---
 
@@ -303,8 +304,7 @@ Current stage: **v1.1.0** — IR JSON export.
 
 Near-term (1.x):
 
-* **1.2** — Browser-safe core split; in-memory module resolver; GitHub Pages playground
-* **1.3** — Graph viewer: visualize the IR alongside source code
+* **1.3** — Pan/zoom graph, collapsed subgraphs for `case`/`fold`, expandable `ref` nodes
 * **1.4+** — Rewrite system; visual rewrite exploration
 
 Language extensions (later):
