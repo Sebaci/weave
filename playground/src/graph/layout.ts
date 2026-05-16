@@ -15,19 +15,20 @@
  */
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import type { Graph, Node, PortId } from "../../../src/ir/ir.ts";
+import type { Type, ConcreteEffect } from "../../../src/types/type.ts";
 import type { SourceNodeId, SourceSpan } from "../../../src/surface/id.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const SOURCE_ID   = "@@source";
-const SINK_ID     = "@@sink";
-const NODE_W      = 140;
-const BOUNDARY_W  = 36;
+const SOURCE_ID    = "@@source";
+const SINK_ID      = "@@sink";
+const NODE_W       = 140;
+const BOUNDARY_W   = 36;
 const PORT_SPACING = 18;
-const MIN_H       = 36;
-const PAD_H       = 20;
+const MIN_H        = 36;
+const PAD_H        = 20;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -41,13 +42,14 @@ export type RenderedPort = {
   index:  number;
   total:  number;
   label?: string;
+  ty:     Type;
 };
 
 export type RenderedNode = {
   id:       string;
   label:    string;
   kind:     string;
-  tooltip:  string;
+  effect:   ConcreteEffect;
   x:        number;
   y:        number;
   width:    number;
@@ -58,44 +60,45 @@ export type RenderedNode = {
 };
 
 export type RenderedEdge = {
-  fromPortId: PortId;   // look up in outPortPos
-  toPortId:   PortId;   // look up in inPortPos
+  fromPortId: PortId;
+  toPortId:   PortId;
 };
 
 export type RenderedLayout = {
-  nodes:      RenderedNode[];
-  edges:      RenderedEdge[];
-  outPortPos: Map<PortId, PortPos>;  // port → position on right edge of owner
-  inPortPos:  Map<PortId, PortPos>;  // port → position on left edge of owner
-  width:      number;
-  height:     number;
+  nodes:       RenderedNode[];
+  edges:       RenderedEdge[];
+  outPortPos:  Map<PortId, PortPos>;
+  inPortPos:   Map<PortId, PortPos>;
+  portTypeMap: Map<PortId, Type>;    // portId → type, for wire tooltip lookup
+  width:       number;
+  height:      number;
 };
 
 // ---------------------------------------------------------------------------
-// Port lists per node kind
+// Port lists per node kind (includes type info from IR ports)
 // ---------------------------------------------------------------------------
 
-type PortEntry   = { portId: PortId; label?: string };
+type PortEntry    = { portId: PortId; label?: string; ty: Type };
 type NodePortList = { inPorts: PortEntry[]; outPorts: PortEntry[] };
 
 function getNodePorts(node: Node): NodePortList {
   switch (node.kind) {
     case "dup":
       return {
-        inPorts:  [{ portId: node.input.id }],
-        outPorts: node.outputs.map((p, i) => ({ portId: p.id, label: String(i) })),
+        inPorts:  [{ portId: node.input.id, ty: node.input.ty }],
+        outPorts: node.outputs.map((p, i) => ({ portId: p.id, label: String(i), ty: p.ty })),
       };
     case "tuple":
       return {
-        inPorts:  node.inputs.map(inp => ({ portId: inp.port.id, label: inp.label })),
-        outPorts: [{ portId: node.output.id }],
+        inPorts:  node.inputs.map(inp => ({ portId: inp.port.id, label: inp.label, ty: inp.port.ty })),
+        outPorts: [{ portId: node.output.id, ty: node.output.ty }],
       };
     case "const":
-      return { inPorts: [], outPorts: [{ portId: node.output.id }] };
+      return { inPorts: [], outPorts: [{ portId: node.output.id, ty: node.output.ty }] };
     default:
       return {
-        inPorts:  [{ portId: node.input.id }],
-        outPorts: [{ portId: node.output.id }],
+        inPorts:  [{ portId: node.input.id,  ty: node.input.ty  }],
+        outPorts: [{ portId: node.output.id, ty: node.output.ty }],
       };
   }
 }
@@ -125,30 +128,6 @@ function nodeLabel(node: Node): string {
 }
 
 // ---------------------------------------------------------------------------
-// Node tooltip (richer than label — shown on hover)
-// ---------------------------------------------------------------------------
-
-function nodeTooltip(node: Node): string {
-  switch (node.kind) {
-    case "ref":    return `ref: ${node.defId}`;
-    case "const": {
-      const v = node.value;
-      if (v.tag === "text")  return `const: "${v.value}"`;
-      if (v.tag === "unit")  return "const: ()";
-      return `const: ${String(v.value)}`;
-    }
-    case "dup":    return `dup × ${node.outputs.length}`;
-    case "proj":   return `.${node.field}`;
-    case "ctor":   return `ctor: ${node.ctorName}`;
-    case "effect": return `effect: ${node.op}`;
-    case "tuple":  return `tuple {${node.inputs.map(i => i.label).join(", ")}}`;
-    case "case":   return node.field ? `case .${node.field}` : "case";
-    case "cata":   return "fold (catamorphism)";
-    case "drop":   return "drop (discard input)";
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Port y-position within a node (centered around node.y)
 // ---------------------------------------------------------------------------
 
@@ -162,23 +141,15 @@ function portY(nodeY: number, index: number, total: number): number {
 
 export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan>): RenderedLayout {
   // ── Collect all port → owner-node mappings ──────────────────────────────
-  //
-  // outPorts: portId → nodeId that produces this port as an output
-  // inPorts:  portId → nodeId that consumes this port as an input
-  //
-  // When the same portId appears in both maps, the two nodes are
-  // directly wired (implicit / shared-port connection).
-
-  const outPorts = new Map<PortId, string>(); // portId → nodeId
-  const inPorts  = new Map<PortId, string>(); // portId → nodeId
+  const outPorts = new Map<PortId, string>();
+  const inPorts  = new Map<PortId, string>();
 
   outPorts.set(graph.inPort.id,  SOURCE_ID);
   inPorts.set(graph.outPort.id,  SINK_ID);
 
-  // Per-node port lists (kept for position computation later)
   const allPorts = new Map<string, NodePortList>();
-  allPorts.set(SOURCE_ID, { inPorts: [], outPorts: [{ portId: graph.inPort.id }] });
-  allPorts.set(SINK_ID,   { inPorts: [{ portId: graph.outPort.id }], outPorts: [] });
+  allPorts.set(SOURCE_ID, { inPorts: [], outPorts: [{ portId: graph.inPort.id,  ty: graph.inPort.ty  }] });
+  allPorts.set(SINK_ID,   { inPorts: [{ portId: graph.outPort.id, ty: graph.outPort.ty }], outPorts: [] });
 
   for (const node of graph.nodes) {
     const ports = getNodePorts(node);
@@ -202,7 +173,7 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     g.setNode(node.id, { width: NODE_W, height: h });
   }
 
-  // ── Collect all edges (implicit + explicit) ───────────────────────────────
+  // ── Collect all edges (implicit + explicit) ──────────────────────────────
 
   const renderedEdges: RenderedEdge[] = [];
   const addedEdgePairs = new Set<string>();
@@ -215,7 +186,6 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     renderedEdges.push({ fromPortId, toPortId });
   }
 
-  // Implicit: shared port IDs (outPort of A == inPort of B)
   for (const [portId, fromNodeId] of outPorts) {
     const toNodeId = inPorts.get(portId);
     if (toNodeId !== undefined && toNodeId !== fromNodeId) {
@@ -223,7 +193,6 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     }
   }
 
-  // Explicit wires
   for (let i = 0; i < graph.wires.length; i++) {
     const wire       = graph.wires[i]!;
     const fromNodeId = outPorts.get(wire.from);
@@ -242,8 +211,9 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
   // ── Extract positioned nodes + compute port positions ────────────────────
 
   const renderedNodes: RenderedNode[] = [];
-  const outPortPos    = new Map<PortId, PortPos>(); // right edge of owner
-  const inPortPos     = new Map<PortId, PortPos>(); // left edge of owner
+  const outPortPos    = new Map<PortId, PortPos>();
+  const inPortPos     = new Map<PortId, PortPos>();
+  const portTypeMap   = new Map<PortId, Type>();
 
   for (const nodeId of g.nodes()) {
     const n     = g.node(nodeId) as { x: number; y: number; width: number; height: number };
@@ -251,15 +221,17 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
 
     const inPortsR: RenderedPort[] = ports.inPorts.map((p, i) => {
       inPortPos.set(p.portId, { x: n.x - n.width / 2, y: portY(n.y, i, ports.inPorts.length) });
-      return { portId: p.portId, side: "in", index: i, total: ports.inPorts.length, label: p.label };
+      portTypeMap.set(p.portId, p.ty);
+      return { portId: p.portId, side: "in", index: i, total: ports.inPorts.length, label: p.label, ty: p.ty };
     });
 
     const outPortsR: RenderedPort[] = ports.outPorts.map((p, i) => {
       outPortPos.set(p.portId, { x: n.x + n.width / 2, y: portY(n.y, i, ports.outPorts.length) });
-      return { portId: p.portId, side: "out", index: i, total: ports.outPorts.length, label: p.label };
+      portTypeMap.set(p.portId, p.ty);
+      return { portId: p.portId, side: "out", index: i, total: ports.outPorts.length, label: p.label, ty: p.ty };
     });
 
-    const irNode = graph.nodes.find(nd => nd.id === nodeId);
+    const irNode  = graph.nodes.find(nd => nd.id === nodeId);
     const isSource = nodeId === SOURCE_ID;
     const isSink   = nodeId === SINK_ID;
 
@@ -271,15 +243,11 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
       return undefined;
     })();
 
-    const tooltip = isSource ? "graph input port"
-      : isSink   ? "graph output port"
-      : nodeTooltip(irNode!);
-
     renderedNodes.push({
       id:       nodeId,
       label:    isSource ? "in" : isSink ? "out" : nodeLabel(irNode!),
       kind:     isSource ? "source" : isSink ? "sink" : (irNode?.kind ?? "unknown"),
-      tooltip,
+      effect:   isSource || isSink ? "pure" : (irNode?.effect ?? "pure"),
       x:        n.x,
       y:        n.y,
       width:    n.width,
@@ -295,6 +263,7 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     edges: renderedEdges,
     outPortPos,
     inPortPos,
+    portTypeMap,
     width:  graphMeta.width  ?? 400,
     height: graphMeta.height ?? 300,
   };

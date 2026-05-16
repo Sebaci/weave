@@ -4,6 +4,9 @@
  * Edges are drawn as cubic bezier curves from an output-port position
  * (right edge of source node) to an input-port position (left edge of
  * target node).  Ports are coloured by side (blue = input, green = output).
+ *
+ * Each wire gets an invisible wide hit-area path so pointer events fire
+ * reliably on thin bezier curves.
  */
 import type { RenderedLayout, RenderedNode, PortPos } from "./layout.ts";
 
@@ -38,15 +41,17 @@ function esc(s: string): string {
 
 function f(n: number): string { return n.toFixed(1); }
 
-function renderEdge(from: PortPos, to: PortPos): string {
+function renderEdge(from: PortPos, to: PortPos, fromPortId: string, toPortId: string): string {
   const dx = Math.max(50, Math.abs(to.x - from.x) * 0.45);
   const d  = `M ${f(from.x)} ${f(from.y)} C ${f(from.x + dx)} ${f(from.y)} ${f(to.x - dx)} ${f(to.y)} ${f(to.x)} ${f(to.y)}`;
-  return `<path d="${d}" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/>`;
+  const visible = `<path d="${d}" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/>`;
+  const hitArea = `<path d="${d}" fill="none" stroke="transparent" stroke-width="10" data-from="${fromPortId}" data-to="${toPortId}" style="cursor:crosshair"/>`;
+  return visible + hitArea;
 }
 
-function renderPortCircle(pos: PortPos, side: "in" | "out"): string {
+function renderPortCircle(pos: PortPos, side: "in" | "out", portId: string): string {
   const fill = side === "in" ? "#60a5fa" : "#34d399";
-  return `<circle cx="${f(pos.x)}" cy="${f(pos.y)}" r="${PORT_R}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`;
+  return `<circle cx="${f(pos.x)}" cy="${f(pos.y)}" r="${PORT_R}" fill="${fill}" stroke="#fff" stroke-width="1.5" data-port-id="${portId}" data-port-side="${side}"/>`;
 }
 
 function renderPortLabel(pos: PortPos, label: string, side: "in" | "out"): string {
@@ -72,18 +77,17 @@ function renderNode(
     ...n.inPorts.map(p => {
       const pos = inPortPos.get(p.portId);
       if (!pos) return "";
-      return renderPortCircle(pos, "in") + (p.label ? renderPortLabel(pos, p.label, "in") : "");
+      return renderPortCircle(pos, "in", p.portId) + (p.label ? renderPortLabel(pos, p.label, "in") : "");
     }),
     ...n.outPorts.map(p => {
       const pos = outPortPos.get(p.portId);
       if (!pos) return "";
-      return renderPortCircle(pos, "out") + (p.label ? renderPortLabel(pos, p.label, "out") : "");
+      return renderPortCircle(pos, "out", p.portId) + (p.label ? renderPortLabel(pos, p.label, "out") : "");
     }),
   ].join("");
 
   const spanAttr = n.span ? ` data-span="${esc(JSON.stringify(n.span))}"` : "";
-  const title = `<title>${esc(n.tooltip)}</title>`;
-  return `<g class="node" data-id="${n.id}" data-kind="${n.kind}"${spanAttr}>${title}${rect}${label}${circles}</g>`;
+  return `<g class="node" data-id="${n.id}" data-kind="${n.kind}"${spanAttr}>${rect}${label}${circles}</g>`;
 }
 
 export function renderGraphSVG(layout: RenderedLayout): string {
@@ -95,7 +99,7 @@ export function renderGraphSVG(layout: RenderedLayout): string {
     const from = layout.outPortPos.get(e.fromPortId);
     const to   = layout.inPortPos.get(e.toPortId);
     if (!from || !to) return "";
-    return renderEdge(from, to);
+    return renderEdge(from, to, e.fromPortId, e.toPortId);
   }).join("\n  ");
 
   const nodes = layout.nodes

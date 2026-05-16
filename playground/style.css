@@ -115,6 +115,49 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
 .graph-body g.node { cursor: pointer; }
 .graph-body g.node:hover { filter: brightness(0.88) drop-shadow(0 2px 6px rgba(0,0,0,0.22)); }
 
+/* ── Graph tooltip ────────────────────────────────────────────────────── */
+#graph-tooltip {
+  position: fixed;
+  z-index: 1000;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 8px;
+  padding: 10px 13px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  max-width: 300px;
+  pointer-events: none;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+  display: none;
+}
+#graph-tooltip.visible { display: block; }
+
+.tt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.tt-label { font-weight: 700; font-size: 13px; color: #f1f5f9; }
+.tt-effect {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.tt-effect-pure            { background: #14532d; color: #86efac; }
+.tt-effect-parallel-safe   { background: #1e3a5f; color: #93c5fd; }
+.tt-effect-sequential      { background: #7f1d1d; color: #fca5a5; }
+
+.tt-desc  { color: #94a3b8; font-size: 11px; margin-bottom: 7px; }
+.tt-morph { color: #7dd3fc; font-weight: 600; margin-bottom: 4px; }
+.tt-morph-label { color: #64748b; font-size: 10px; }
+.tt-source { color: #64748b; font-size: 10px; margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.07); padding-top: 5px; }
+
 /* ── IR JSON ──────────────────────────────────────────────────────────── */
 .ir-body {
   white-space: pre;

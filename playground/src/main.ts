@@ -4,6 +4,7 @@ import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { StateEffect, StateField } from "@codemirror/state";
 import { weaveLang } from "./weave-lang.ts";
 import { layoutGraph } from "./graph/layout.ts";
+import type { RenderedLayout, RenderedNode, RenderedPort } from "./graph/layout.ts";
 import { renderGraphSVG } from "./graph/render.ts";
 import { buildMemoryModuleGraph, checkAll, elaborateAll } from "../../src/compiler.ts";
 import type { ModuleGraph } from "../../src/compiler.ts";
@@ -11,6 +12,7 @@ import { serializeGraph } from "../../src/ir/serialize.ts";
 import { resetElabCounters } from "../../src/elaborator/index.ts";
 import type { Position, SourceNodeId, SourceSpan } from "../../src/surface/id.ts";
 import type { ElaboratedModule } from "../../src/ir/ir.ts";
+import type { Type } from "../../src/types/type.ts";
 import type { Text } from "@codemirror/state";
 
 // ---------------------------------------------------------------------------
@@ -85,6 +87,7 @@ function posToOffset(doc: Text, pos: Position): number {
 
 let currentElabMod: ElaboratedModule | null = null;
 let currentSpanMap: Map<SourceNodeId, SourceSpan> = new Map();
+let currentLayout:  RenderedLayout | null = null;
 
 function refreshIRPanel(): void {
   if (!currentElabMod) { irJson.textContent = ""; return; }
@@ -96,15 +99,215 @@ function refreshIRPanel(): void {
 }
 
 function refreshGraphPanel(): void {
-  if (!currentElabMod) { graphSvgEl.innerHTML = ""; return; }
+  if (!currentElabMod) { graphSvgEl.innerHTML = ""; currentLayout = null; return; }
   const defName = defSelect.value;
-  if (!defName) { graphSvgEl.innerHTML = ""; return; }
+  if (!defName) { graphSvgEl.innerHTML = ""; currentLayout = null; return; }
   const graph = currentElabMod.defs.get(defName);
-  if (!graph)  { graphSvgEl.innerHTML = ""; return; }
-  graphSvgEl.innerHTML = renderGraphSVG(layoutGraph(graph, currentSpanMap));
+  if (!graph)  { graphSvgEl.innerHTML = ""; currentLayout = null; return; }
+  currentLayout = layoutGraph(graph, currentSpanMap);
+  graphSvgEl.innerHTML = renderGraphSVG(currentLayout);
 }
 
 defSelect.addEventListener("change", () => { refreshIRPanel(); refreshGraphPanel(); });
+
+// ---------------------------------------------------------------------------
+// Graph tooltip — custom HTML overlay, 200ms delay, immediate hide
+// ---------------------------------------------------------------------------
+
+const NODE_DESCRIPTIONS: Record<string, string> = {
+  source: "The value entering this definition from the caller",
+  sink:   "The value produced by this definition, returned to the caller",
+  dup:    "Copies the input so it can flow into multiple branches",
+  drop:   "Discards the input value, producing Unit",
+  const:  "Introduces a constant value, ignoring its Unit input",
+  ref:    "Applies a named definition as a morphism",
+  tuple:  "Combines multiple labeled values into a record",
+  proj:   "Extracts one named field from a record",
+  ctor:   "Wraps a value in a variant constructor tag",
+  case:   "Dispatches on a variant type, selecting the matching branch",
+  cata:   "Eliminates a recursive type by folding each constructor case",
+  effect: "Performs an external effectful operation",
+};
+
+function formatType(ty: Type): string {
+  switch (ty.tag) {
+    case "Unit":   return "()";
+    case "Int":    return "Int";
+    case "Float":  return "Float";
+    case "Bool":   return "Bool";
+    case "Text":   return "Text";
+    case "TyVar":  return ty.name;
+    case "Record": {
+      if (ty.fields.length === 0) return "{}";
+      const fs = ty.fields.map(f => `${f.name}: ${formatType(f.ty)}`).join(", ");
+      return `{ ${fs} }`;
+    }
+    case "Named":
+      return ty.args.length === 0
+        ? ty.name
+        : `${ty.name} ${ty.args.map(a => formatType(a)).join(" ")}`;
+    case "Arrow":
+      return `${formatType(ty.from)} → ${formatType(ty.to)}`;
+  }
+}
+
+function formatMorphism(node: RenderedNode): string {
+  const ins  = node.inPorts.map(p => formatType(p.ty));
+  const outs = node.outPorts.map(p => formatType(p.ty));
+  const inStr  = ins.length  === 0 ? "()" : ins.length  === 1 ? ins[0]!  : ins.join(" × ");
+  const outStr = outs.length === 0 ? "()" : outs.length === 1 ? outs[0]! : outs.join(" × ");
+  return `${inStr} → ${outStr}`;
+}
+
+function formatSpan(span: SourceSpan): string {
+  const { start, end } = span;
+  if (start.line === end.line) {
+    return `line ${start.line}, col ${start.column}–${end.column}`;
+  }
+  return `lines ${start.line}–${end.line}`;
+}
+
+function buildNodeTooltip(node: RenderedNode): string {
+  const effectClass = `tt-effect-${node.effect}`;
+  const desc  = NODE_DESCRIPTIONS[node.kind] ?? "";
+
+  // Source/sink are synthetic boundary markers — they don't perform an operation.
+  // Show the carried type directly rather than a misleading morphism like "() → Text".
+  let morphLine: string;
+  if (node.kind === "source") {
+    const ty = node.outPorts[0]?.ty;
+    morphLine = `<div class="tt-morph"><span class="tt-morph-label">carries: </span>${escHtml(ty ? formatType(ty) : "?")}</div>`;
+  } else if (node.kind === "sink") {
+    const ty = node.inPorts[0]?.ty;
+    morphLine = `<div class="tt-morph"><span class="tt-morph-label">carries: </span>${escHtml(ty ? formatType(ty) : "?")}</div>`;
+  } else {
+    morphLine = `<div class="tt-morph"><span class="tt-morph-label">type: </span>${escHtml(formatMorphism(node))}</div>`;
+  }
+
+  const spanStr = node.span
+    ? `<div class="tt-source">source: ${formatSpan(node.span)}</div>`
+    : "";
+  return `
+    <div class="tt-header">
+      <span class="tt-label">${escHtml(node.label)}</span>
+      <span class="tt-effect ${effectClass}">${node.effect}</span>
+    </div>
+    ${desc ? `<div class="tt-desc">${escHtml(desc)}</div>` : ""}
+    ${morphLine}
+    ${spanStr}
+  `.trim();
+}
+
+function buildPortTooltip(port: RenderedPort): string {
+  const side  = port.side === "in" ? "input" : "output";
+  const label = port.label ? ` <em>${escHtml(port.label)}</em>` : "";
+  return `
+    <div class="tt-header">
+      <span class="tt-label">${side} port${label}</span>
+    </div>
+    <div class="tt-morph">${escHtml(formatType(port.ty))}</div>
+  `.trim();
+}
+
+function buildWireTooltip(fromPortId: string, toPortId: string, layout: RenderedLayout): string {
+  const ty = layout.portTypeMap.get(fromPortId);
+  const tyStr = ty ? formatType(ty) : "?";
+  return `
+    <div class="tt-header">
+      <span class="tt-label">wire</span>
+    </div>
+    <div class="tt-desc">Connects an output port to an input port</div>
+    <div class="tt-morph">${escHtml(tyStr)}</div>
+  `.trim();
+}
+
+const tooltipEl = document.createElement("div");
+tooltipEl.id = "graph-tooltip";
+tooltipEl.setAttribute("aria-hidden", "true");
+document.body.appendChild(tooltipEl);
+
+let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+let hoveredId: string | null = null;
+
+function positionTooltip(x: number, y: number): void {
+  const tw = tooltipEl.offsetWidth;
+  const th = tooltipEl.offsetHeight;
+  let left = x + 16;
+  let top  = y + 16;
+  if (left + tw > window.innerWidth  - 8) left = x - tw - 12;
+  if (top  + th > window.innerHeight - 8) top  = y - th - 12;
+  tooltipEl.style.left = `${left}px`;
+  tooltipEl.style.top  = `${top}px`;
+}
+
+function scheduleTooltip(html: string, x: number, y: number): void {
+  if (tooltipTimer !== null) clearTimeout(tooltipTimer);
+  tooltipTimer = setTimeout(() => {
+    tooltipTimer = null;
+    tooltipEl.innerHTML = html;
+    tooltipEl.classList.add("visible");
+    positionTooltip(x, y);
+  }, 200);
+}
+
+function hideTooltip(): void {
+  if (tooltipTimer !== null) { clearTimeout(tooltipTimer); tooltipTimer = null; }
+  tooltipEl.classList.remove("visible");
+  hoveredId = null;
+}
+
+graphSvgEl.addEventListener("pointermove", (e) => {
+  const target = e.target as Element;
+  const layout = currentLayout;
+  if (!layout) { hideTooltip(); return; }
+
+  let id: string;
+  let html: string;
+
+  // Port circles are inside g.node but should take priority
+  if (target.matches("circle[data-port-id]")) {
+    const portId   = target.getAttribute("data-port-id")!;
+    const portSide = target.getAttribute("data-port-side") as "in" | "out";
+    id = `port:${portId}`;
+    const node = layout.nodes.find(n =>
+      n.inPorts.some(p => p.portId === portId) || n.outPorts.some(p => p.portId === portId)
+    );
+    const port = node
+      ? [...node.inPorts, ...node.outPorts].find(p => p.portId === portId && p.side === portSide)
+      : undefined;
+    html = port ? buildPortTooltip(port) : "";
+  } else {
+    const nodeEl = target.closest("g.node");
+    if (nodeEl) {
+      const nodeId = nodeEl.getAttribute("data-id")!;
+      id = `node:${nodeId}`;
+      const node = layout.nodes.find(n => n.id === nodeId);
+      html = node ? buildNodeTooltip(node) : "";
+    } else {
+      // Wires: the hit-area path carries data-from / data-to
+      const from = target.getAttribute("data-from");
+      const to   = target.getAttribute("data-to");
+      if (from && to) {
+        id   = `wire:${from}→${to}`;
+        html = buildWireTooltip(from, to, layout);
+      } else {
+        hideTooltip();
+        return;
+      }
+    }
+  }
+
+  if (id === hoveredId) {
+    if (tooltipEl.classList.contains("visible")) positionTooltip(e.clientX, e.clientY);
+    return;
+  }
+
+  hoveredId = id;
+  if (html) scheduleTooltip(html, e.clientX, e.clientY);
+  else hideTooltip();
+});
+
+graphSvgEl.addEventListener("pointerleave", hideTooltip);
 
 // ---------------------------------------------------------------------------
 // Graph → editor provenance hover
