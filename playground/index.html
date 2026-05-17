@@ -29,7 +29,11 @@
       <section class="panel" id="graph-panel">
         <div class="panel-header">
           Graph
-          <select id="def-select" title="Select def"></select>
+          <div class="def-picker" id="def-picker">
+            <span class="def-picker-value" id="def-picker-value"></span>
+            <span class="def-picker-arrow">▾</span>
+            <ul class="def-picker-list" id="def-picker-list"></ul>
+          </div>
           <button id="graph-fit-btn" class="graph-fit-btn" title="Fit graph to view">Fit</button>
         </div>
         <div id="graph-svg" class="panel-body graph-body"></div>

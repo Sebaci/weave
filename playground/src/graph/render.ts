@@ -8,7 +8,8 @@
  * Each wire gets an invisible wide hit-area path so pointer events fire
  * reliably on thin bezier curves.
  */
-import type { RenderedLayout, RenderedNode, PortPos } from "./layout.ts";
+import type { RenderedLayout, RenderedNode, PortPos, SubLayout } from "./layout.ts";
+import { CONTAINER_PAD, CONTAINER_HEADER_H } from "./layout.ts";
 
 const PORT_R = 4;
 
@@ -70,8 +71,9 @@ function renderNode(
   const bx = n.x - n.width  / 2;
   const by = n.y - n.height / 2;
 
-  const rect  = `<rect x="${f(bx)}" y="${f(by)}" width="${n.width}" height="${n.height}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
-  const label = `<text x="${f(n.x)}" y="${f(n.y)}" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="11" fill="${fg}" font-weight="600">${esc(n.label)}</text>`;
+  const rect        = `<rect x="${f(bx)}" y="${f(by)}" width="${n.width}" height="${n.height}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+  const displayLabel = n.expandable && !n.expanded ? `${n.label} [+]` : n.label;
+  const label       = `<text x="${f(n.x)}" y="${f(n.y)}" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="11" fill="${fg}" font-weight="600">${esc(displayLabel)}</text>`;
 
   const circles = [
     ...n.inPorts.map(p => {
@@ -91,6 +93,55 @@ function renderNode(
   return `<g class="node" data-id="${n.id}" data-kind="${n.kind}"${spanAttr}${sidsAttr}>${rect}${label}${circles}</g>`;
 }
 
+function renderLayoutContent(layout: RenderedLayout): string {
+  const edges = layout.edges.map(e => {
+    const from = layout.outPortPos.get(e.fromPortId);
+    const to   = layout.inPortPos.get(e.toPortId);
+    if (!from || !to) return "";
+    return renderEdge(from, to, e.fromPortId, e.toPortId);
+  }).join("");
+  const nodes = layout.nodes
+    .map(n => renderNode(n, layout.outPortPos, layout.inPortPos))
+    .join("");
+  return `<g class="edges">${edges}</g><g class="nodes">${nodes}</g>`;
+}
+
+function renderExpandedRef(
+  n:          RenderedNode,
+  sub:        SubLayout & { kind: "ref" },
+  outPortPos: Map<string, PortPos>,
+  inPortPos:  Map<string, PortPos>,
+): string {
+  const { stroke, fg } = color("ref");
+  const bx = n.x - n.width  / 2;
+  const by = n.y - n.height / 2;
+
+  const bg      = `<rect x="${f(bx)}" y="${f(by)}" width="${n.width}" height="${n.height}" rx="8" fill="#eff6ff" stroke="${stroke}" stroke-width="1.5"/>`;
+  const label   = `<text x="${f(n.x)}" y="${f(by + CONTAINER_HEADER_H / 2)}" dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="10" fill="${fg}" font-weight="700">${esc(sub.label)} [−]</text>`;
+  const divider = `<line x1="${f(bx)}" y1="${f(by + CONTAINER_HEADER_H)}" x2="${f(bx + n.width)}" y2="${f(by + CONTAINER_HEADER_H)}" stroke="${stroke}" stroke-width="1" opacity="0.4"/>`;
+
+  const subX   = bx + CONTAINER_PAD;
+  const subY   = by + CONTAINER_HEADER_H + CONTAINER_PAD;
+  const subGrp = `<g transform="translate(${f(subX)},${f(subY)})">${renderLayoutContent(sub.layout)}</g>`;
+
+  const circles = [
+    ...n.inPorts.map(p => {
+      const pos = inPortPos.get(p.portId);
+      if (!pos) return "";
+      return renderPortCircle(pos, "in", p.portId) + (p.label ? renderPortLabel(pos, p.label, "in") : "");
+    }),
+    ...n.outPorts.map(p => {
+      const pos = outPortPos.get(p.portId);
+      if (!pos) return "";
+      return renderPortCircle(pos, "out", p.portId) + (p.label ? renderPortLabel(pos, p.label, "out") : "");
+    }),
+  ].join("");
+
+  const spanAttr = n.span ? ` data-span="${esc(JSON.stringify(n.span))}"` : "";
+  const sidsAttr = n.sourceIds.length > 0 ? ` data-sids="${esc(n.sourceIds.join(" "))}"` : "";
+  return `<g class="node" data-id="${n.id}" data-kind="${n.kind}"${spanAttr}${sidsAttr}>${bg}${label}${divider}${subGrp}${circles}</g>`;
+}
+
 export function renderGraphSVG(layout: RenderedLayout): string {
   const edges = layout.edges.map(e => {
     const from = layout.outPortPos.get(e.fromPortId);
@@ -99,9 +150,11 @@ export function renderGraphSVG(layout: RenderedLayout): string {
     return renderEdge(from, to, e.fromPortId, e.toPortId);
   }).join("\n    ");
 
-  const nodes = layout.nodes
-    .map(n => renderNode(n, layout.outPortPos, layout.inPortPos))
-    .join("\n    ");
+  const nodes = layout.nodes.map(n => {
+    const sub = layout.subLayouts.get(n.id);
+    if (sub?.kind === "ref") return renderExpandedRef(n, sub, layout.outPortPos, layout.inPortPos);
+    return renderNode(n, layout.outPortPos, layout.inPortPos);
+  }).join("\n    ");
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg"`,

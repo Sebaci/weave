@@ -4,7 +4,7 @@ import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { StateEffect, StateField } from "@codemirror/state";
 import { weaveLang } from "./weave-lang.ts";
 import { layoutGraph } from "./graph/layout.ts";
-import type { RenderedLayout, RenderedNode, RenderedPort } from "./graph/layout.ts";
+import type { RenderedLayout, RenderedNode, RenderedPort, ExpansionInfo } from "./graph/layout.ts";
 import { renderGraphSVG } from "./graph/render.ts";
 import { buildMemoryModuleGraph, checkAll, elaborateAll } from "../../src/compiler.ts";
 import type { ModuleGraph } from "../../src/compiler.ts";
@@ -13,7 +13,7 @@ import { formatGraphText } from "./ir/text.ts";
 import { formatGraphCore } from "./ir/core.ts";
 import { resetElabCounters } from "../../src/elaborator/index.ts";
 import type { Position, SourceNodeId, SourceSpan } from "../../src/surface/id.ts";
-import type { ElaboratedModule } from "../../src/ir/ir.ts";
+import type { ElaboratedModule, Graph } from "../../src/ir/ir.ts";
 import type { Type } from "../../src/types/type.ts";
 import type { Text } from "@codemirror/state";
 
@@ -70,7 +70,52 @@ const irCore      = document.getElementById("ir-core")!;
 const irJson      = document.getElementById("ir-json")!;
 const irText      = document.getElementById("ir-text")!;
 const graphSvgEl  = document.getElementById("graph-svg")!;
-const defSelect   = document.getElementById("def-select") as HTMLSelectElement;
+const defPicker      = document.getElementById("def-picker")!;
+const defPickerValue = document.getElementById("def-picker-value")!;
+const defPickerList  = document.getElementById("def-picker-list")!;
+let   defPickerNames: string[] = [];
+let   defPickerSelected = "";
+
+function defPickerOpen(): void {
+  defPickerList.classList.add("open");
+}
+function defPickerClose(): void {
+  defPickerList.classList.remove("open");
+}
+function defPickerSetNames(names: string[], selected: string): void {
+  defPickerNames    = names;
+  defPickerSelected = selected;
+  defPickerValue.textContent = selected;
+  defPicker.classList.toggle("disabled", names.length === 0);
+  defPickerList.innerHTML = names
+    .map(n => `<li data-value="${n}" class="${n === selected ? "selected" : ""}">${n}</li>`)
+    .join("");
+}
+
+defPickerValue.addEventListener("click", () => {
+  if (defPicker.classList.contains("disabled")) return;
+  defPickerList.classList.contains("open") ? defPickerClose() : defPickerOpen();
+});
+
+defPickerList.addEventListener("click", (e) => {
+  const li = (e.target as Element).closest("li");
+  if (!li) return;
+  const name = li.getAttribute("data-value");
+  if (!name || name === defPickerSelected) { defPickerClose(); return; }
+  defPickerSelected = name;
+  defPickerValue.textContent = name;
+  defPickerList.querySelectorAll("li").forEach(el =>
+    el.classList.toggle("selected", el.getAttribute("data-value") === name)
+  );
+  defPickerClose();
+  expandedNodes.clear();
+  refreshIRPanel();
+  refreshGraphPanel();
+});
+
+document.addEventListener("click", (e) => {
+  if (!defPicker.contains(e.target as Node)) defPickerClose();
+});
 const fitBtn      = document.getElementById("graph-fit-btn") as HTMLButtonElement;
 
 // ---------------------------------------------------------------------------
@@ -81,11 +126,14 @@ let panX       = 0;
 let panY       = 0;
 let pzScale    = 1;
 let dragging   = false;
+let dragMoved  = false;
 let dragStartX = 0;
 let dragStartY = 0;
 let panStartX  = 0;
 let panStartY  = 0;
 let viewportEl: SVGGElement | null = null;
+
+const expandedNodes = new Set<string>();
 
 function applyTransform(): void {
   if (!viewportEl) return;
@@ -151,7 +199,7 @@ let currentLayout:  RenderedLayout | null = null;
 
 function refreshIRPanel(): void {
   if (!currentElabMod) { irCore.textContent = ""; irJson.textContent = ""; irText.textContent = ""; return; }
-  const defName = defSelect.value;
+  const defName = defPickerSelected;
   if (!defName) { irCore.textContent = ""; irJson.textContent = ""; irText.textContent = ""; return; }
   const graph = currentElabMod.defs.get(defName);
   if (!graph)  { irCore.textContent = ""; irJson.textContent = ""; irText.textContent = ""; return; }
@@ -160,19 +208,83 @@ function refreshIRPanel(): void {
   irText.textContent = formatGraphText(defName, graph);
 }
 
+function buildExpansionMap(graph: Graph): Map<string, ExpansionInfo> {
+  const result = new Map<string, ExpansionInfo>();
+  if (!currentElabMod) return result;
+  for (const node of graph.nodes) {
+    if (!expandedNodes.has(node.id) || node.kind !== "ref") continue;
+    const defGraph = currentElabMod.defs.get(node.defId);
+    if (defGraph) {
+      result.set(node.id, {
+        kind:    "ref",
+        graph:   defGraph,
+        defName: node.defId.split(".").pop() ?? node.defId,
+      });
+    }
+  }
+  return result;
+}
+
+let lastGraphSVG = "";
+
 function refreshGraphPanel(): void {
-  if (!currentElabMod) { graphSvgEl.innerHTML = ""; viewportEl = null; currentLayout = null; return; }
-  const defName = defSelect.value;
-  if (!defName) { graphSvgEl.innerHTML = ""; viewportEl = null; currentLayout = null; return; }
+  if (!currentElabMod) { graphSvgEl.innerHTML = ""; lastGraphSVG = ""; viewportEl = null; currentLayout = null; return; }
+  const defName = defPickerSelected;
+  if (!defName) { graphSvgEl.innerHTML = ""; lastGraphSVG = ""; viewportEl = null; currentLayout = null; return; }
   const graph = currentElabMod.defs.get(defName);
-  if (!graph)  { graphSvgEl.innerHTML = ""; viewportEl = null; currentLayout = null; return; }
-  currentLayout = layoutGraph(graph, currentSpanMap);
-  graphSvgEl.innerHTML = renderGraphSVG(currentLayout);
+  if (!graph)  { graphSvgEl.innerHTML = ""; lastGraphSVG = ""; viewportEl = null; currentLayout = null; return; }
+  const expansion     = buildExpansionMap(graph);
+  const availableDefs = new Set(currentElabMod.defs.keys());
+  currentLayout       = layoutGraph(graph, currentSpanMap, expansion, availableDefs);
+  const svg = renderGraphSVG(currentLayout);
+  if (svg === lastGraphSVG) return;
+  lastGraphSVG = svg;
+  graphSvgEl.innerHTML = svg;
   viewportEl = graphSvgEl.querySelector<SVGGElement>("#graph-viewport");
   fitGraph();
 }
 
-defSelect.addEventListener("change", () => { refreshIRPanel(); refreshGraphPanel(); });
+
+// ---------------------------------------------------------------------------
+// Layout search helpers (recurse through sub-layouts for expanded nodes)
+// ---------------------------------------------------------------------------
+
+function findPortInLayouts(layout: RenderedLayout, portId: string, side: "in" | "out"): RenderedPort | undefined {
+  const list = side === "in" ? "inPorts" : "outPorts";
+  const node = layout.nodes.find(n => n[list].some(p => p.portId === portId));
+  if (node) return node[list].find(p => p.portId === portId);
+  for (const sub of layout.subLayouts.values()) {
+    if (sub.kind === "ref") {
+      const found = findPortInLayouts(sub.layout, portId, side);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function findNodeInLayouts(layout: RenderedLayout, nodeId: string): RenderedNode | undefined {
+  const node = layout.nodes.find(n => n.id === nodeId);
+  if (node) return node;
+  for (const sub of layout.subLayouts.values()) {
+    if (sub.kind === "ref") {
+      const found = findNodeInLayouts(sub.layout, nodeId);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function findPortTypeInLayouts(layout: RenderedLayout, portId: string): Type | undefined {
+  const ty = layout.portTypeMap.get(portId);
+  if (ty !== undefined) return ty;
+  for (const sub of layout.subLayouts.values()) {
+    if (sub.kind === "ref") {
+      const found = findPortTypeInLayouts(sub.layout, portId);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Graph tooltip — custom HTML overlay, 200ms delay, immediate hide
@@ -274,7 +386,7 @@ function buildPortTooltip(port: RenderedPort): string {
 }
 
 function buildWireTooltip(fromPortId: string, toPortId: string, layout: RenderedLayout): string {
-  const ty = layout.portTypeMap.get(fromPortId);
+  const ty = findPortTypeInLayouts(layout, fromPortId);
   const tyStr = ty ? formatType(ty) : "?";
   return `
     <div class="tt-header">
@@ -344,6 +456,7 @@ graphSvgEl.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || !viewportEl) return;
   hideTooltip();
   dragging   = true;
+  dragMoved  = false;
   dragStartX = e.clientX;
   dragStartY = e.clientY;
   panStartX  = panX;
@@ -352,15 +465,36 @@ graphSvgEl.addEventListener("pointerdown", (e) => {
   graphSvgEl.classList.add("dragging");
 });
 
-graphSvgEl.addEventListener("pointerup",         () => endDrag());
+graphSvgEl.addEventListener("pointerup", (e) => {
+  if (!dragging) return;
+  const isClick = !dragMoved;
+  const cx = e.clientX;
+  const cy = e.clientY;
+  dragMoved = false;
+  endDrag();
+  if (!isClick || !currentLayout) return;
+  const el      = document.elementFromPoint(cx, cy);
+  const nodeEl  = el?.closest("g.node");
+  if (!nodeEl) return;
+  const nodeId  = nodeEl.getAttribute("data-id");
+  if (!nodeId) return;
+  const node = currentLayout.nodes.find(n => n.id === nodeId);
+  if (!node?.expandable) return;
+  if (expandedNodes.has(nodeId)) expandedNodes.delete(nodeId);
+  else expandedNodes.add(nodeId);
+  refreshGraphPanel();
+});
 graphSvgEl.addEventListener("pointercancel",      () => endDrag());
 graphSvgEl.addEventListener("lostpointercapture", () => endDrag());
 window.addEventListener("blur",                   () => endDrag());
 
 graphSvgEl.addEventListener("pointermove", (e) => {
   if (dragging) {
-    panX = panStartX + (e.clientX - dragStartX);
-    panY = panStartY + (e.clientY - dragStartY);
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved = true;
+    panX = panStartX + dx;
+    panY = panStartY + dy;
     applyTransform();
     hideTooltip();
     return;
@@ -378,19 +512,14 @@ graphSvgEl.addEventListener("pointermove", (e) => {
     const portId   = target.getAttribute("data-port-id")!;
     const portSide = target.getAttribute("data-port-side") as "in" | "out";
     id = `port:${portId}`;
-    const node = layout.nodes.find(n =>
-      n.inPorts.some(p => p.portId === portId) || n.outPorts.some(p => p.portId === portId)
-    );
-    const port = node
-      ? [...node.inPorts, ...node.outPorts].find(p => p.portId === portId && p.side === portSide)
-      : undefined;
+    const port = findPortInLayouts(layout, portId, portSide);
     html = port ? buildPortTooltip(port) : "";
   } else {
     const nodeEl = target.closest("g.node");
     if (nodeEl) {
       const nodeId = nodeEl.getAttribute("data-id")!;
       id = `node:${nodeId}`;
-      const node = layout.nodes.find(n => n.id === nodeId);
+      const node = findNodeInLayouts(layout, nodeId);
       html = node ? buildNodeTooltip(node) : "";
     } else {
       // Wires: the hit-area path carries data-from / data-to
@@ -417,6 +546,7 @@ graphSvgEl.addEventListener("pointermove", (e) => {
 });
 
 graphSvgEl.addEventListener("pointerleave", () => { hideTooltip(); clearCoreHighlight(); clearProvenance(); });
+
 
 // ---------------------------------------------------------------------------
 // Graph → editor provenance hover
@@ -496,18 +626,13 @@ irCore.addEventListener("mouseover", (e) => {
 irCore.addEventListener("mouseleave", () => clearProvenance());
 
 function updateDefSelector(names: string[]): void {
-  const prev   = defSelect.value;
+  const prev   = defPickerSelected;
   const target = pendingDef ?? prev;
   pendingDef   = null;
-  defSelect.innerHTML = "";
-  for (const name of names) {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    defSelect.appendChild(opt);
+  const selected = names.includes(target) ? target : (names[0] ?? "");
+  if (defPickerNames.join(",") !== names.join(",") || defPickerSelected !== selected) {
+    defPickerSetNames(names, selected);
   }
-  defSelect.value    = names.includes(target) ? target : (names[0] ?? "");
-  defSelect.disabled = names.length === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -564,9 +689,6 @@ const weaveLinter = linter(
         }
       }
       renderDiagnostics(diags, source);
-      currentElabMod = null;
-      updateDefSelector([]);
-      refreshIRPanel();
       return diags;
     }
 
@@ -585,9 +707,6 @@ const weaveLinter = linter(
         }
       }
       renderDiagnostics(diags, source);
-      currentElabMod = null;
-      updateDefSelector([]);
-      refreshIRPanel();
       return diags.filter((d) => d.from !== d.to || d.from > 0); // omit spanless from inline
     }
 
@@ -603,9 +722,6 @@ const weaveLinter = linter(
         }
       }
       renderDiagnostics(diags, source);
-      currentElabMod = null;
-      updateDefSelector([]);
-      refreshIRPanel();
       return diags;
     }
 
@@ -614,9 +730,11 @@ const weaveLinter = linter(
     currentSpanMap = collectSpanMap(gr.graph);
     const defNames = [...er.value.defs.keys()];
     updateDefSelector(defNames);
+    renderDiagnostics([], source);
+    // Defer heavy layout/render so we don't block the event loop (e.g. dropdown opening)
+    await new Promise<void>(r => setTimeout(r, 0));
     refreshIRPanel();
     refreshGraphPanel();
-    renderDiagnostics([], source);
     return [];
   },
   { delay: 300 },
@@ -683,7 +801,7 @@ const shareBtn = document.getElementById("share-btn") as HTMLButtonElement;
 shareBtn.addEventListener("click", () => {
   const code    = view.state.doc.toString();
   const encoded = encodeCode(code);
-  const defName = defSelect.value;
+  const defName = defPickerSelected;
   const defPart = defName ? `&def=${encodeURIComponent(defName)}` : "";
   const hash    = `#code/${encoded}${defPart}`;
   const url     = `${window.location.origin}${window.location.pathname}${hash}`;

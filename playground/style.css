@@ -126,6 +126,7 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
   cursor: grab;
   touch-action: none;
   background: #f8fafc;
+  user-select: none;
 }
 
 .graph-body.dragging,
@@ -220,18 +221,52 @@ header .subtitle{ font-size: 0.85rem; color: #888; }
   color: #2c3e50;
 }
 
-/* ── Def selector ─────────────────────────────────────────────────────── */
-#def-select {
+/* ── Def picker (custom dropdown) ─────────────────────────────────────── */
+.def-picker {
+  position: relative;
   font-family: var(--mono);
   font-size: 11px;
+  user-select: none;
+}
+.def-picker-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface);
   color: #333;
   cursor: pointer;
+  white-space: nowrap;
+  min-width: 80px;
 }
-#def-select:disabled { opacity: 0.4; }
+.def-picker-value:hover { background: #f0f4ff; }
+.def-picker-arrow { pointer-events: none; margin-left: -4px; font-size: 10px; color: #888; }
+.def-picker-list {
+  display: none;
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  min-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  list-style: none;
+  padding: 3px 0;
+  z-index: 200;
+}
+.def-picker-list.open { display: block; }
+.def-picker-list li {
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: #333;
+}
+.def-picker-list li:hover { background: #f0f4ff; }
+.def-picker-list li.selected { font-weight: 700; color: var(--accent); }
+.def-picker.disabled .def-picker-value { opacity: 0.4; pointer-events: none; }
 
 /* ── CodeMirror overrides ─────────────────────────────────────────────── */
 .cm-editor { font-family: var(--mono) !important; }

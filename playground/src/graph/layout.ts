@@ -30,6 +30,9 @@ const PORT_SPACING = 18;
 const MIN_H        = 36;
 const PAD_H        = 20;
 
+export const CONTAINER_PAD      = 12;
+export const CONTAINER_HEADER_H = 22;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -46,24 +49,32 @@ export type RenderedPort = {
 };
 
 export type RenderedNode = {
-  id:        string;
-  label:     string;
-  kind:      string;
-  effect:    ConcreteEffect;
-  x:         number;
-  y:         number;
-  width:     number;
-  height:    number;
-  inPorts:   RenderedPort[];
-  outPorts:  RenderedPort[];
-  span?:     SourceSpan;
-  sourceIds: SourceNodeId[];
+  id:         string;
+  label:      string;
+  kind:       string;
+  effect:     ConcreteEffect;
+  x:          number;
+  y:          number;
+  width:      number;
+  height:     number;
+  inPorts:    RenderedPort[];
+  outPorts:   RenderedPort[];
+  span?:      SourceSpan;
+  sourceIds:  SourceNodeId[];
+  expandable: boolean;
+  expanded:   boolean;
 };
 
 export type RenderedEdge = {
   fromPortId: PortId;
   toPortId:   PortId;
 };
+
+export type ExpansionInfo =
+  | { kind: "ref"; graph: Graph; defName: string };
+
+export type SubLayout =
+  | { kind: "ref"; layout: RenderedLayout; label: string };
 
 export type RenderedLayout = {
   nodes:       RenderedNode[];
@@ -73,6 +84,7 @@ export type RenderedLayout = {
   portTypeMap: Map<PortId, Type>;    // portId → type, for wire tooltip lookup
   width:       number;
   height:      number;
+  subLayouts:  Map<string, SubLayout>;
 };
 
 // ---------------------------------------------------------------------------
@@ -140,7 +152,12 @@ function portY(nodeY: number, index: number, total: number): number {
 // Main layout function
 // ---------------------------------------------------------------------------
 
-export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan>): RenderedLayout {
+export function layoutGraph(
+  graph:          Graph,
+  spanMap?:       Map<SourceNodeId, SourceSpan>,
+  expanded?:      Map<string, ExpansionInfo>,
+  availableDefs?: Set<string>,
+): RenderedLayout {
   // ── Collect all port → owner-node mappings ──────────────────────────────
   const outPorts = new Map<PortId, string>();
   const inPorts  = new Map<PortId, string>();
@@ -159,6 +176,22 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     for (const p of ports.inPorts)  inPorts.set(p.portId,  node.id);
   }
 
+  // ── Pre-compute sub-layouts for expanded nodes ───────────────────────────
+
+  const subLayouts    = new Map<string, SubLayout>();
+  const containerDims = new Map<string, { w: number; h: number }>();
+
+  for (const [nodeId, info] of (expanded ?? [])) {
+    if (info.kind === "ref") {
+      const sub = layoutGraph(info.graph, spanMap);  // no nested expansion
+      subLayouts.set(nodeId, { kind: "ref", layout: sub, label: `ref: ${info.defName}` });
+      containerDims.set(nodeId, {
+        w: sub.width  + CONTAINER_PAD * 2,
+        h: sub.height + CONTAINER_HEADER_H + CONTAINER_PAD * 2,
+      });
+    }
+  }
+
   // ── Build Dagre graph ────────────────────────────────────────────────────
 
   const g = new graphlib.Graph({ multigraph: true });
@@ -169,9 +202,14 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
   g.setNode(SINK_ID,   { width: BOUNDARY_W, height: MIN_H });
 
   for (const node of graph.nodes) {
-    const ports = allPorts.get(node.id)!;
-    const h = Math.max(MIN_H, Math.max(ports.inPorts.length, ports.outPorts.length) * PORT_SPACING + PAD_H);
-    g.setNode(node.id, { width: NODE_W, height: h });
+    const container = containerDims.get(node.id);
+    if (container) {
+      g.setNode(node.id, { width: container.w, height: container.h });
+    } else {
+      const ports = allPorts.get(node.id)!;
+      const h = Math.max(MIN_H, Math.max(ports.inPorts.length, ports.outPorts.length) * PORT_SPACING + PAD_H);
+      g.setNode(node.id, { width: NODE_W, height: h });
+    }
   }
 
   // ── Collect all edges (implicit + explicit) ──────────────────────────────
@@ -295,19 +333,23 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
       return undefined;
     })();
 
+    const isExpandable = !isSource && !isSink && irNode?.kind === "ref"
+      && (availableDefs?.has(irNode.defId) ?? false);
     renderedNodes.push({
-      id:        nodeId,
-      label:     isSource ? "in" : isSink ? "out" : nodeLabel(irNode!),
-      kind:      isSource ? "source" : isSink ? "sink" : (irNode?.kind ?? "unknown"),
-      effect:    isSource || isSink ? "pure" : (irNode?.effect ?? "pure"),
-      x:         n.x,
-      y:         n.y,
-      width:     n.width,
-      height:    n.height,
-      inPorts:   inPortsR,
-      outPorts:  outPortsR,
+      id:         nodeId,
+      label:      isSource ? "in" : isSink ? "out" : nodeLabel(irNode!),
+      kind:       isSource ? "source" : isSink ? "sink" : (irNode?.kind ?? "unknown"),
+      effect:     isSource || isSink ? "pure" : (irNode?.effect ?? "pure"),
+      x:          n.x,
+      y:          n.y,
+      width:      n.width,
+      height:     n.height,
+      inPorts:    inPortsR,
+      outPorts:   outPortsR,
       span,
-      sourceIds: (irNode?.provenance ?? []).map(p => p.sourceId),
+      sourceIds:  (irNode?.provenance ?? []).map(p => p.sourceId),
+      expandable: isExpandable,
+      expanded:   isExpandable && (expanded?.has(nodeId) ?? false),
     });
   }
 
@@ -317,7 +359,8 @@ export function layoutGraph(graph: Graph, spanMap?: Map<SourceNodeId, SourceSpan
     outPortPos,
     inPortPos,
     portTypeMap,
-    width:  graphMeta.width  ?? 400,
-    height: graphMeta.height ?? 300,
+    width:      graphMeta.width  ?? 400,
+    height:     graphMeta.height ?? 300,
+    subLayouts,
   };
 }
