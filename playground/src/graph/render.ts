@@ -92,27 +92,24 @@ function renderNode(
 }
 
 export function renderGraphSVG(layout: RenderedLayout): string {
-  const pad = 20;
-  const vbW = layout.width  + pad * 2;
-  const vbH = layout.height + pad * 2;
-
   const edges = layout.edges.map(e => {
     const from = layout.outPortPos.get(e.fromPortId);
     const to   = layout.inPortPos.get(e.toPortId);
     if (!from || !to) return "";
     return renderEdge(from, to, e.fromPortId, e.toPortId);
-  }).join("\n  ");
+  }).join("\n    ");
 
   const nodes = layout.nodes
     .map(n => renderNode(n, layout.outPortPos, layout.inPortPos))
-    .join("\n  ");
+    .join("\n    ");
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg"`,
-    `     viewBox="${-pad} ${-pad} ${vbW} ${vbH}"`,
-    `     style="width:100%;height:100%;display:block;background:#f8fafc">`,
-    `  <g class="edges">${edges}</g>`,
-    `  <g class="nodes">${nodes}</g>`,
+    `     style="width:100%;height:100%;display:block">`,
+    `  <g id="graph-viewport">`,
+    `    <g class="edges">${edges}</g>`,
+    `    <g class="nodes">${nodes}</g>`,
+    `  </g>`,
     `</svg>`,
   ].join("\n");
 }

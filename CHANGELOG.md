@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] - 2026-05-17
+
+### Added
+- **Pan/zoom for the graph panel** — scroll wheel zooms centred on the cursor; click-and-drag pans; a "Fit" button in the panel header resets to a centred fit-to-view. Drag state is correctly released on pointer capture loss and window blur. Tooltips are suppressed during drag.
+
+---
+
 ## [1.2.1] - 2026-05-16
 
 ### Added

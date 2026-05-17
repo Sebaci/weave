@@ -71,6 +71,41 @@ const irJson      = document.getElementById("ir-json")!;
 const irText      = document.getElementById("ir-text")!;
 const graphSvgEl  = document.getElementById("graph-svg")!;
 const defSelect   = document.getElementById("def-select") as HTMLSelectElement;
+const fitBtn      = document.getElementById("graph-fit-btn") as HTMLButtonElement;
+
+// ---------------------------------------------------------------------------
+// Pan/zoom state
+// ---------------------------------------------------------------------------
+
+let panX       = 0;
+let panY       = 0;
+let pzScale    = 1;
+let dragging   = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let panStartX  = 0;
+let panStartY  = 0;
+let viewportEl: SVGGElement | null = null;
+
+function applyTransform(): void {
+  if (!viewportEl) return;
+  viewportEl.setAttribute("transform", `translate(${panX}, ${panY}) scale(${pzScale})`);
+}
+
+function fitGraph(): void {
+  if (!currentLayout || !viewportEl) return;
+  const W = graphSvgEl.clientWidth;
+  const H = graphSvgEl.clientHeight;
+  if (W <= 0 || H <= 0) { requestAnimationFrame(() => fitGraph()); return; }
+  const pad = 24;
+  const s   = Math.min(W / (currentLayout.width + pad * 2), H / (currentLayout.height + pad * 2));
+  panX    = (W - currentLayout.width  * s) / 2;
+  panY    = (H - currentLayout.height * s) / 2;
+  pzScale = Math.max(0.05, Math.min(20, s));
+  applyTransform();
+}
+
+fitBtn.addEventListener("click", () => fitGraph());
 
 // ---------------------------------------------------------------------------
 // IR panel tab switching
@@ -126,13 +161,15 @@ function refreshIRPanel(): void {
 }
 
 function refreshGraphPanel(): void {
-  if (!currentElabMod) { graphSvgEl.innerHTML = ""; currentLayout = null; return; }
+  if (!currentElabMod) { graphSvgEl.innerHTML = ""; viewportEl = null; currentLayout = null; return; }
   const defName = defSelect.value;
-  if (!defName) { graphSvgEl.innerHTML = ""; currentLayout = null; return; }
+  if (!defName) { graphSvgEl.innerHTML = ""; viewportEl = null; currentLayout = null; return; }
   const graph = currentElabMod.defs.get(defName);
-  if (!graph)  { graphSvgEl.innerHTML = ""; currentLayout = null; return; }
+  if (!graph)  { graphSvgEl.innerHTML = ""; viewportEl = null; currentLayout = null; return; }
   currentLayout = layoutGraph(graph, currentSpanMap);
   graphSvgEl.innerHTML = renderGraphSVG(currentLayout);
+  viewportEl = graphSvgEl.querySelector<SVGGElement>("#graph-viewport");
+  fitGraph();
 }
 
 defSelect.addEventListener("change", () => { refreshIRPanel(); refreshGraphPanel(); });
@@ -283,7 +320,52 @@ function hideTooltip(): void {
   hoveredId = null;
 }
 
+graphSvgEl.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (!viewportEl) return;
+  const rect     = graphSvgEl.getBoundingClientRect();
+  const mx       = e.clientX - rect.left;
+  const my       = e.clientY - rect.top;
+  const factor   = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const newScale = Math.max(0.05, Math.min(20, pzScale * factor));
+  panX   = mx - (mx - panX) * (newScale / pzScale);
+  panY   = my - (my - panY) * (newScale / pzScale);
+  pzScale = newScale;
+  applyTransform();
+}, { passive: false });
+
+function endDrag(): void {
+  if (!dragging) return;
+  dragging = false;
+  graphSvgEl.classList.remove("dragging");
+}
+
+graphSvgEl.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || !viewportEl) return;
+  hideTooltip();
+  dragging   = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  panStartX  = panX;
+  panStartY  = panY;
+  graphSvgEl.setPointerCapture(e.pointerId);
+  graphSvgEl.classList.add("dragging");
+});
+
+graphSvgEl.addEventListener("pointerup",         () => endDrag());
+graphSvgEl.addEventListener("pointercancel",      () => endDrag());
+graphSvgEl.addEventListener("lostpointercapture", () => endDrag());
+window.addEventListener("blur",                   () => endDrag());
+
 graphSvgEl.addEventListener("pointermove", (e) => {
+  if (dragging) {
+    panX = panStartX + (e.clientX - dragStartX);
+    panY = panStartY + (e.clientY - dragStartY);
+    applyTransform();
+    hideTooltip();
+    return;
+  }
+
   const target = e.target as Element;
   const layout = currentLayout;
   if (!layout) { hideTooltip(); return; }
